@@ -1092,11 +1092,11 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 
 (defvar-keymap acpe-control-mode-map
   :doc "Keymap for `acpe-control-mode'."
-  "C-c C-c"    #'acpe-accept
-  "C-c C-k"    #'acpe-cancel
-  "C-c C-n"    #'acpe-restart
-  "C-c C-m"    #'acpe-mode-next
-  "C-c C-M"    #'acpe-mode-previous)
+  "C-c C-c" #'acpe-accept
+  "C-c C-k" #'acpe-cancel
+  "C-c n"   #'acpe-restart
+  "C-c m"   #'acpe-mode-next
+  "C-c M"   #'acpe-mode-previous)
 
 (define-minor-mode acpe-control-mode
   "Minor mode providing acpe commands in prompt, diff, and plan buffers."
@@ -1115,10 +1115,10 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
   "S-<return>" #'newline
   "C-c C-c"    #'acpe-accept
   "C-c C-k"    #'acpe-cancel
-  "C-c C-n"    #'acpe-restart
+  "C-c n"      #'acpe-restart
   "TAB"        #'acpe-toggle-detail-at-point
-  "C-c C-m"    #'acpe-mode-next
-  "C-c C-M"    #'acpe-mode-previous)
+  "C-c m"      #'acpe-mode-next
+  "C-c M"      #'acpe-mode-previous)
 
 (define-derived-mode acpe-prompt-mode comint-mode "ACP"
   "Major mode for interacting with an ACP agent."
