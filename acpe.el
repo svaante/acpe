@@ -31,7 +31,6 @@
 ;;
 ;; Usage:
 ;;   Call M-x acpe your-favorite-acp-server to start a ACP session.
-;;   Use `acpe-prompt' to send a message to the agent.
 ;;
 
 ;;; Code:
@@ -849,6 +848,7 @@ Spans with acpe-lazy-insert property become resource blocks."
     (acpe--prompt-insert conn (propertize "\nrestarted" 'font-lock-face 'warning))
     (acpe (combine-and-quote-strings command))))
 
+;;;###autoload
 (defun acpe-insert (conn)
   "Insert a buffer reference for the current buffer into prompt.
 CONN is inferred if called interactively w/o a prefix arg otherwise
@@ -1321,9 +1321,6 @@ start a new session even if one exists for the current project."
         (t
          (jsonrpc-shutdown conn)
          (signal (car err) (cdr err)))))))
-
-(define-key ctl-x-map "\C-r" 'acpe)
-(define-key ctl-x-map "@" 'acpe-insert)
 
 (provide 'acpe)
 
