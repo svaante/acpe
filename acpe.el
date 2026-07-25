@@ -766,7 +766,7 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
                                    (when-let* ((s (cdr (assoc key annotated)))
                                                (fp (plist-get s :firstPrompt))
                                                ((stringp fp)))
-                                     (concat "  " (substring-no-properties fp))))))
+                                     (concat "  " (car (string-lines (substring-no-properties fp) t)))))))
                 (complete-with-action action pairs string predicate)))))
       (cdr (assoc (completing-read
                    (format-prompt "Session" new-label)
