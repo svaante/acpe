@@ -65,12 +65,14 @@
   "Shell command to convert markdown to HTML.  Nil for raw text."
   :type '(choice string (const nil)))
 
-(defcustom acpe-prompt-finished-hook nil
-  "Hook run when the agent finishes responding and awaits input."
+(defcustom acpe-finished-hook nil
+  "Hook run after the agent completes its response.
+Called with the connection as argument."
   :type 'hook)
 
-(defcustom acpe-permission-requested-hook nil
-  "Hook run when the agent requests permission to perform action."
+(defcustom acpe-permission-hook nil
+  "Hook run when the agent requests permission to perform action.
+Called with the connection as argument."
   :type 'hook)
 
 
@@ -275,7 +277,7 @@
     ;; this reply.  Always store :toolCallId so the permission queue
     ;; can do a live buffer lookup later (session/update may not have
     ;; rendered the tool call yet when this request arrives).
-    (run-hooks 'acpe-permission-requested-hook)
+    (run-hook-with-args 'acpe-permission-hook conn)
     `( :acpe-deferred t
        :options ,(append options nil)
        :toolCallId ,(plist-get toolCall :toolCallId))))
@@ -835,7 +837,7 @@ Spans with acpe-lazy-insert property become resource blocks."
          (acpe--prompt-insert
           conn "\n" (propertize reason 'font-lock-face 'warning)))
        (acpe--prompt-update-mode-line conn)
-       (run-hooks 'acpe-prompt-finished-hook)))))
+       (run-hook-with-args 'acpe-finished-hook conn)))))
 
 (defun acpe-restart (conn)
   "Start a new session on CONN, discarding the current context."
