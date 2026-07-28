@@ -118,7 +118,10 @@ Called with the connection as argument."
     :documentation "Config options provided by the agent (list of PLISTs).")
    (first-prompt
     :accessor acpe--first-prompt :initform nil
-    :documentation "First prompt text sent in this session."))
+    :documentation "First prompt text sent in this session.")
+   (usage
+    :accessor acpe--usage :initform nil
+    :documentation "Cons (USED . SIZE) from usage_update."))
   :documentation "ACP connection to a coding agent.")
 
 
@@ -381,6 +384,11 @@ Called with the connection as argument."
       ("tool_call_update"
        (when-let* ((id (plist-get update :toolCallId)))
          (apply #'acpe--update-tool-call conn id update)))
+      ("usage_update"
+       (when-let* ((used (plist-get update :used))
+                   (size (plist-get update :size)))
+         (setf (acpe--usage conn) (cons used size))
+         (acpe--prompt-update-mode-line conn)))
       ("plan"
        (acpe--flush-thought-chunks conn)
        (acpe--flush-message-chunks conn)
@@ -1240,6 +1248,13 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
                                           :key (lambda (v) (plist-get v :value))
                                           :test #'equal)))
               (plist-get cur-opt :name)))
+           (:eval
+            (when-let*
+                ((usage (acpe--usage acpe--connection))
+                 (used (car usage))
+                 (size (cdr usage))
+                 ((not (zerop size))))
+              (format "/%d%%%%" (round (* 100.0 (/ (float used) size))))))
            "]"))))
       (add-hook 'kill-buffer-hook
                 (lambda () (jsonrpc-shutdown acpe--connection))
