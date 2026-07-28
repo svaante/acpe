@@ -1263,8 +1263,8 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
       (when new-buffer-p
         (acpe--prompt-insert
          conn (concat
-               "Welcome to Acpe!\n"
-               "Type `/help' for a list of commands.\n"
+               "* Welcome to the Acpe prompt *\n"
+               "Type /help for a list of commands.\n"
                "\n"
                (when-let* ((prompt (acpe--first-prompt conn)))
                  (format "Session `%s' continued...\n\n" prompt)))))
