@@ -849,7 +849,7 @@ Spans with acpe-lazy-insert property become resource blocks."
 
 (defun acpe-restart (conn)
   "Start a new session on CONN, discarding the current context."
-  (interactive (list (acpe--live-connection)))
+  (interactive (list (or acpe--connection (acpe--live-connection))))
   (let* ((proc (jsonrpc--process conn))
          (command (process-command proc)))
     (jsonrpc-shutdown conn)
