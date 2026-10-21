@@ -1388,11 +1388,13 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 ;;; Entry point
 
 ;;;###autoload
-(defun acpe (&optional existing skip-project)
+(defun acpe (&optional existing skip-project new-session)
   "Start an ACP session using `acpe-command'.
 The working directory is the project root or `default-directory'.
 EXISTING reuses a live connection instead of spawning a new process.
 SKIP-PROJECT non-nil uses `default-directory' instead of the project root.
+NEW-SESSION non-nil always creates a new session instead of prompting
+for an existing one to load.
 Return the session buffer.
 
 With \\[universal-argument], always start a new session even if one exists
@@ -1439,7 +1441,8 @@ for the current project."
       (condition-case err
           (progn
             (acpe--initialize conn)
-            (if-let* ((session-id (acpe--session-prompt conn)))
+            (if-let* (((not new-session))
+                      (session-id (acpe--session-prompt conn)))
                 (acpe--session-load conn session-id working-dir)
               (acpe--session-new conn))
             (acpe--make-prompt-buffer conn)
@@ -1459,7 +1462,7 @@ EXISTING reuses a live connection instead of spawning a new process."
          (acpe--connection nil))
      (list (unless current-prefix-arg (acpe--live-connection 'nowarn)))))
   (let ((default-directory (expand-file-name acpe-scratch-directory)))
-    (with-current-buffer (acpe existing t)
+    (with-current-buffer (acpe existing t t)
       (rename-buffer "*acpe scratch*" t))))
 
 (provide 'acpe)
