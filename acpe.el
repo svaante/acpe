@@ -121,9 +121,9 @@ Called with the connection as argument."
    (config-options
     :accessor acpe--config-options :initform nil
     :documentation "Config options provided by the agent (list of PLISTs).")
-   (first-prompt
-    :accessor acpe--first-prompt :initform nil
-    :documentation "First prompt text sent in this session.")
+   (title
+    :accessor acpe--title :initform nil
+    :documentation "Session title, defaults to the first prompt.")
    (usage
     :accessor acpe--usage :initform nil
     :documentation "Cons (USED . SIZE) from usage_update."))
@@ -394,6 +394,9 @@ Called with the connection as argument."
                    (size (plist-get update :size)))
          (setf (acpe--usage conn) (cons used size))
          (acpe--prompt-update-mode-line conn)))
+      ("session_info_update"
+       (when-let* ((title (plist-get update :title)))
+         (setf (acpe--title conn) title)))
       ("plan"
        (acpe--flush-thought-chunks conn)
        (acpe--flush-message-chunks conn)
@@ -709,7 +712,8 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
                     :agentName ,(acpe--agent-name conn)
                     :workingDirectory ,(acpe--working-directory conn)
                     :configOptions ,(acpe--config-options conn)
-                    :firstPrompt ,(acpe--first-prompt conn)
+                    ;; XXX Title is stored as :firstPrompt for compat
+                    :firstPrompt ,(acpe--title conn)
                     :updatedAt ,(float-time))))
     (acpe--session-store-write
      (cons record (cl-remove (acpe--session-id conn) records
@@ -744,7 +748,7 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
           (acpe--config-options conn)
           (or (append (plist-get result :configOptions) nil)
               (plist-get existing :configOptions))
-          (acpe--first-prompt conn) (plist-get existing :firstPrompt)))
+          (acpe--title conn) (plist-get existing :firstPrompt)))
   (acpe--prompt-update-mode-line conn))
 
 (defun acpe--session-prompt (conn)
@@ -777,9 +781,9 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
                              (annotation-function
                               . ,(lambda (key)
                                    (when-let* ((s (cdr (assoc key annotated)))
-                                               (fp (plist-get s :firstPrompt))
-                                               ((stringp fp)))
-                                     (concat "  " (car (string-lines (substring-no-properties fp) t)))))))
+                                               (title (plist-get s :firstPrompt))
+                                               ((stringp title)))
+                                     (concat "  " (car (string-lines (substring-no-properties title) t)))))))
                 (complete-with-action action pairs string predicate)))))
       (cdr (assoc (completing-read
                    (format-prompt "Session" new-label)
@@ -820,8 +824,8 @@ Spans with acpe-lazy-insert property become resource blocks."
     (user-error "Connection not initialized"))
   (unless (acpe--session-id conn)
     (user-error "No active session"))
-  (unless (acpe--first-prompt conn)
-    (setf (acpe--first-prompt conn) (substring-no-properties text)))
+  (unless (acpe--title conn)
+    (setf (acpe--title conn) (substring-no-properties text)))
   (let* ((embedded-p
           (eq t (plist-get
                  (plist-get (acpe--capabilities conn) :promptCapabilities)
@@ -1268,8 +1272,8 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
                "* Welcome to the Acpe prompt *\n"
                "Type /help for a list of commands.\n"
                "\n"
-               (when-let* ((prompt (acpe--first-prompt conn)))
-                 (format "Session `%s' continued...\n\n" prompt)))))
+               (when-let* ((title (acpe--title conn)))
+                 (format "Session `%s' continued...\n\n" title)))))
       (acpe--prompt-update-mode-line conn))))
 
 
