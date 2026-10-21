@@ -126,7 +126,10 @@ Called with the connection as argument."
     :documentation "Session title, defaults to the first prompt.")
    (usage
     :accessor acpe--usage :initform nil
-    :documentation "Cons (USED . SIZE) from usage_update."))
+    :documentation "Cons (USED . SIZE) from usage_update.")
+   (updated
+    :accessor acpe--updated :initform nil
+    :documentation "Time of last message to or from the agent."))
   :documentation "ACP connection to a coding agent.")
 
 
@@ -202,6 +205,7 @@ Called with the connection as argument."
            (json (json-serialize converted
                                  :null-object nil
                                  :false-object :json-false)))
+      (setf (acpe--updated conn) (current-time))
       (process-send-string (jsonrpc--process conn) (concat json "\n"))
       (jsonrpc--event conn 'client
                       :json json
@@ -219,6 +223,12 @@ Called with the connection as argument."
 (cl-defgeneric acpe-handle-notification (_conn _method &rest _params)
   "Handle notification METHOD from CONN."
   nil)
+
+(cl-defmethod acpe-handle-request :before (conn _method &rest _params)
+  (setf (acpe--updated conn) (current-time)))
+
+(cl-defmethod acpe-handle-notification :before (conn _method &rest _params)
+  (setf (acpe--updated conn) (current-time)))
 
 
 ;;; Buffer content
@@ -396,7 +406,8 @@ Called with the connection as argument."
          (acpe--prompt-update-mode-line conn)))
       ("session_info_update"
        (when-let* ((title (plist-get update :title)))
-         (setf (acpe--title conn) title)))
+         (setf (acpe--title conn) title))
+       (acpe--list-revert)) ; uggg
       ("plan"
        (acpe--flush-thought-chunks conn)
        (acpe--flush-message-chunks conn)
@@ -854,7 +865,8 @@ Spans with acpe-lazy-insert property become resource blocks."
          (acpe--prompt-insert
           conn "\n" (propertize reason 'font-lock-face 'warning)))
        (acpe--prompt-update-mode-line conn)
-       (run-hook-with-args 'acpe-finished-hook conn)))))
+       (run-hook-with-args 'acpe-finished-hook conn)))
+    (acpe--list-revert))) ; uggg
 
 (defun acpe-restart (conn)
   "Start a new session on CONN, discarding the current context."
@@ -1277,6 +1289,102 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
       (acpe--prompt-update-mode-line conn))))
 
 
+;;; List
+
+(defconst acpe--list-buffer-name "*acpe list*")
+
+(defun acpe--list-status (conn)
+  "Return a propertized status string for CONN."
+  (pcase-let ((`(,face ,label)
+               (cond ((not (acpe--initialized-p conn))
+                      '(shadow                    "Init"))
+                     ((acpe--cancelling conn)
+                      '(shadow                    "Stop"))
+                     ((acpe--pending-permissions conn)
+                      '(compilation-warning       "Perm"))
+                     ((> (jsonrpc-continuation-count conn) 0)
+                      '(compilation-mode-line-run "Busy"))
+                     (t
+                      '(compilation-info          "Idle")))))
+    (propertize label 'font-lock-face face)))
+
+(defun acpe--list-entries ()
+  "Return `tabulated-list-entries' for all live connections."
+  (mapcar
+   (lambda (conn)
+     (list conn
+           (vector
+            (acpe--list-status conn)
+            (format-seconds "%Y, %D, %H, %M, %z%S ago"
+                            (float-time (time-since (acpe--updated conn))))
+            (if-let* ((dir (acpe--working-directory conn)))
+                (file-name-nondirectory (directory-file-name dir))
+              "")
+            (or (acpe--title conn) ""))))
+   acpe--connections))
+
+(defun acpe--list-updated-less-p (a b)
+  "Return non-nil if entry A was updated more recently than entry B."
+  (time-less-p (acpe--updated (car b)) (acpe--updated (car a))))
+
+(defun acpe--list-revert (&rest _)
+  "Revert the `acpe-list' buffer if it exists."
+  (when-let* ((buf (get-buffer acpe--list-buffer-name)))
+    (with-current-buffer buf
+      (tabulated-list-revert))))
+
+(add-hook 'acpe-permission-hook #'acpe--list-revert)
+(add-hook 'acpe-finished-hook   #'acpe--list-revert)
+
+(defvar-keymap acpe-list-mode-map
+  :doc "Keymap for `acpe-list-mode'."
+  :parent tabulated-list-mode-map
+  "RET"     #'acpe-list-visit-buffer
+  "C-c C-c" #'acpe-list-accept
+  "C-c C-k" #'acpe-list-cancel)
+
+(define-derived-mode acpe-list-mode tabulated-list-mode "Acpe Menu"
+  "Major mode listing active acpe sessions.
+\\{acpe-list-mode-map}"
+  (setq tabulated-list-format
+        [("Status"   6 t)
+         ("Updated" 20 acpe--list-updated-less-p)
+         ("Directory" 20 t)
+         ("Title"    0 t)])
+  (setq tabulated-list-entries #'acpe--list-entries)
+  (setq tabulated-list-sort-key '("Updated"))
+  (tabulated-list-init-header))
+
+(defun acpe-list-visit-buffer ()
+  "Switch to the session buffer at point."
+  (interactive)
+  (when-let* ((conn (tabulated-list-get-id)))
+    (pop-to-buffer (acpe--output-buffer conn))))
+
+(defun acpe-list-accept ()
+  "Accept the oldest pending permission for the session at point."
+  (interactive)
+  (when-let* ((conn (tabulated-list-get-id)))
+    (acpe-accept conn)
+    (tabulated-list-revert)))
+
+(defun acpe-list-cancel ()
+  "Cancel the current turn for the session at point."
+  (interactive)
+  (when-let* ((conn (tabulated-list-get-id)))
+    (acpe-cancel conn)
+    (tabulated-list-revert)))
+
+;;;###autoload
+(defun acpe-list ()
+  "Display a list of all active acpe sessions."
+  (interactive)
+  (let ((buf (get-buffer-create acpe--list-buffer-name)))
+    (with-current-buffer buf
+      (acpe-list-mode)
+      (tabulated-list-revert))
+    (pop-to-buffer buf)))
+
 ;;; Entry point
 
 ;;;###autoload
