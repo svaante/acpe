@@ -1408,6 +1408,12 @@ for the current project."
     (unless acpe-command (user-error "Set `acpe-command' first"))
     (let* ((cmd-list (split-string-and-unquote acpe-command))
            (name (car cmd-list))
+           ;; XXX jsonrpc kills " *NAME stderr*" on connect, which
+           ;; would close the stderr pipe of another live connection
+           (conn-name (cl-loop for i from 1
+                               for n = (if (= i 1) name (format "%s<%d>" name i))
+                               unless (get-buffer (format " *%s stderr*" n))
+                               return n))
            (working-dir (expand-file-name
                          (or (when-let* (((not skip-project))
                                          (proj (project-current)))
@@ -1416,7 +1422,7 @@ for the current project."
            (conn
             (make-instance
              'acpe-connection
-             :name name
+             :name conn-name
              :agent-name name
              :working-directory working-dir
              :request-dispatcher
@@ -1429,10 +1435,12 @@ for the current project."
              :process
              (lambda (_c)
                (make-process
-                :name name
+                :name conn-name
                 :command cmd-list
-                :buffer (generate-new-buffer (format " *%s output*" name))
-                :stderr (get-buffer-create (format " *%s stderr*" name))
+                :buffer (generate-new-buffer (format " *%s output*" conn-name))
+                ;; Must match the buffer `jsonrpc-process-connection'
+                ;; creates, otherwise it is killed along with the pipe
+                :stderr (get-buffer-create (format "*%s stderr*" conn-name))
                 :connection-type 'pipe
                 :noquery t
                 :coding 'utf-8-unix)))))
