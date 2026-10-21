@@ -53,8 +53,9 @@
   :prefix "acpe-"
   :group 'tools)
 
-(defvar acpe-command-history nil
-  "History list for ACP agent commands.")
+(defcustom acpe-command nil
+  "Shell command used to start the ACP agent."
+  :type '(choice (string :tag "Command") (const :tag "None" nil)))
 
 (defcustom acpe-session-store-file
   (locate-user-emacs-file "acpe-sessions.eld")
@@ -856,7 +857,8 @@ Spans with acpe-lazy-insert property become resource blocks."
     (while (jsonrpc-running-p conn)
       (accept-process-output nil 0.1))
     (acpe--prompt-insert conn (propertize "\nrestarted" 'font-lock-face 'warning))
-    (acpe (combine-and-quote-strings command))))
+    (let ((acpe-command (combine-and-quote-strings command)))
+      (acpe))))
 
 ;;;###autoload
 (defun acpe-insert (conn)
@@ -1274,26 +1276,23 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 ;;; Entry point
 
 ;;;###autoload
-(defun acpe (cmd &optional dir existing)
-  "Start an ACP session with agent command CMD.
+(defun acpe (&optional dir existing)
+  "Start an ACP session using `acpe-command'.
 DIR defaults to project root or `default-directory'.
 EXISTING reuses a live connection instead of spawning a new process.
 
-Interactively, prompt for a command.  With \\[universal-argument], always
-start a new session even if one exists for the current project."
+With \\[universal-argument], always start a new session even if one exists
+for the current project."
   (interactive
    (let ((existing (unless current-prefix-arg (acpe--live-connection 'nowarn))))
-     (list (unless existing
-             (read-shell-command "Agent command: " (car acpe-command-history)
-                                 'acpe-command-history))
-           nil
-           existing)))
+     (list nil existing)))
   (if-let* ((existing (or existing
                           (unless current-prefix-arg
                             (acpe--live-connection 'nowarn)))))
       ;; Live connection exists, show its buffer.
       (pop-to-buffer (acpe--output-buffer existing))
-    (let* ((cmd-list (split-string-and-unquote cmd))
+    (unless acpe-command (user-error "Set `acpe-command' first"))
+    (let* ((cmd-list (split-string-and-unquote acpe-command))
            (name (car cmd-list))
            (working-dir (expand-file-name
                          (or dir
