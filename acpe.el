@@ -62,6 +62,10 @@
   "File where acpe stores known session IDs for later resume."
   :type 'file)
 
+(defcustom acpe-scratch-directory temporary-file-directory
+  "Working directory used for scratch ACP sessions."
+  :type 'directory)
+
 (defcustom acpe-markdown-command "pandoc --from markdown --to html"
   "Shell command to convert markdown to HTML.  Nil for raw text."
   :type '(choice string (const nil)))
@@ -871,10 +875,10 @@ acpe-lazy-insert text property spanning it is resolved at send time."
     (or (unless current-prefix-arg
           (acpe--live-connection t))
         (let ((collections
-               (mapcar (lambda (c)
-                         (cons (acpe--prompt-buffer-name c)
-                               c))
-                       acpe--connections)))
+               (cl-loop for c in acpe--connections
+                        for buffer = (acpe--output-buffer c)
+                        when (buffer-live-p buffer)
+                        collect (cons (buffer-name buffer) c))))
           (cdr (assoc (completing-read "Connection: " collections nil t)
                       collections)))
         (user-error "No live connections"))))
@@ -1202,14 +1206,10 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
           (setq acpe--output-end
                 (copy-marker (1- (car comint-last-prompt)) t)))))))
 
-(defun acpe--prompt-buffer-name (conn)
-  "Return the prompt buffer name for CONN."
-  (let ((default-directory (acpe--working-directory conn)))
-    (project-prefixed-buffer-name "acpe")))
-
 (defun acpe--make-prompt-buffer (conn)
   "Create the prompt buffer for CONN and return it."
-  (let* ((base-name (acpe--prompt-buffer-name conn))
+  (let* ((base-name (let ((default-directory (acpe--working-directory conn)))
+                      (project-prefixed-buffer-name "acpe")))
          (name (if-let* ((existing (get-buffer base-name))
                          (old-conn (buffer-local-value 'acpe--connection existing))
                          ((jsonrpc-running-p old-conn)))
@@ -1276,27 +1276,27 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 ;;; Entry point
 
 ;;;###autoload
-(defun acpe (&optional dir existing)
+(defun acpe (&optional existing skip-project)
   "Start an ACP session using `acpe-command'.
-DIR defaults to project root or `default-directory'.
+The working directory is the project root or `default-directory'.
 EXISTING reuses a live connection instead of spawning a new process.
+SKIP-PROJECT non-nil uses `default-directory' instead of the project root.
+Return the session buffer.
 
 With \\[universal-argument], always start a new session even if one exists
 for the current project."
   (interactive
    (let ((existing (unless current-prefix-arg (acpe--live-connection 'nowarn))))
-     (list nil existing)))
-  (if-let* ((existing (or existing
-                          (unless current-prefix-arg
-                            (acpe--live-connection 'nowarn)))))
+     (list existing)))
+  (if existing
       ;; Live connection exists, show its buffer.
       (pop-to-buffer (acpe--output-buffer existing))
     (unless acpe-command (user-error "Set `acpe-command' first"))
     (let* ((cmd-list (split-string-and-unquote acpe-command))
            (name (car cmd-list))
            (working-dir (expand-file-name
-                         (or dir
-                             (when-let* ((proj (project-current)))
+                         (or (when-let* (((not skip-project))
+                                         (proj (project-current)))
                                (project-root proj))
                              default-directory)))
            (conn
@@ -1331,12 +1331,24 @@ for the current project."
                 (acpe--session-load conn session-id working-dir)
               (acpe--session-new conn))
             (acpe--make-prompt-buffer conn)
-            (pop-to-buffer (acpe--output-buffer conn))
             (message "[acpe] Connected to %s (session %s)"
-                     name (acpe--session-id conn)))
+                     name (acpe--session-id conn))
+            (pop-to-buffer (acpe--output-buffer conn)))
         (t
          (jsonrpc-shutdown conn)
          (signal (car err) (cdr err)))))))
+
+;;;###autoload
+(defun acpe-scratch (&optional existing)
+  "Start a scratch ACP session in `acpe-scratch-directory'.
+EXISTING reuses a live connection instead of spawning a new process."
+  (interactive
+   (let ((default-directory (expand-file-name acpe-scratch-directory))
+         (acpe--connection nil))
+     (list (unless current-prefix-arg (acpe--live-connection 'nowarn)))))
+  (let ((default-directory (expand-file-name acpe-scratch-directory)))
+    (with-current-buffer (acpe existing t)
+      (rename-buffer "*acpe scratch*" t))))
 
 (provide 'acpe)
 
