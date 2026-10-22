@@ -1233,7 +1233,9 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 (defun acpe--make-prompt-buffer (conn)
   "Create the prompt buffer for CONN and return it."
   (let* ((base-name (let ((default-directory (acpe--working-directory conn)))
-                      (project-prefixed-buffer-name "acpe")))
+                      (if (file-equal-p default-directory acpe-scratch-directory)
+                          "*acpe scratch*"
+                        (project-prefixed-buffer-name "acpe"))))
          (name (if-let* ((existing (get-buffer base-name))
                          (old-conn (buffer-local-value 'acpe--connection existing))
                          ((jsonrpc-running-p old-conn)))
@@ -1478,8 +1480,7 @@ EXISTING reuses a live connection instead of spawning a new process."
          (acpe--connection nil))
      (list (unless current-prefix-arg (acpe--live-connection 'nowarn)))))
   (let ((default-directory (expand-file-name acpe-scratch-directory)))
-    (with-current-buffer (acpe existing t t)
-      (rename-buffer "*acpe scratch*" t))))
+    (acpe existing t t)))
 
 (provide 'acpe)
 
