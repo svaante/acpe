@@ -406,8 +406,7 @@ Called with the connection as argument."
          (acpe--prompt-update-mode-line conn)))
       ("session_info_update"
        (when-let* ((title (plist-get update :title)))
-         (setf (acpe--title conn) title))
-       (acpe--list-revert)) ; uggg
+         (setf (acpe--title conn) title)))
       ("plan"
        (acpe--flush-thought-chunks conn)
        (acpe--flush-message-chunks conn)
@@ -865,8 +864,7 @@ Spans with acpe-lazy-insert property become resource blocks."
          (acpe--prompt-insert
           conn "\n" (propertize reason 'font-lock-face 'warning)))
        (acpe--prompt-update-mode-line conn)
-       (run-hook-with-args 'acpe-finished-hook conn)))
-    (acpe--list-revert))) ; uggg
+       (run-hook-with-args 'acpe-finished-hook conn)))))
 
 (defun acpe-restart (conn)
   "Start a new session on CONN, discarding the current context."
@@ -1301,8 +1299,6 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 
 ;;; List
 
-(defconst acpe--list-buffer-name "*acpe list*")
-
 (defun acpe--list-status (conn)
   "Return a propertized status string for CONN."
   (pcase-let ((`(,face ,label)
@@ -1337,15 +1333,6 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
   "Return non-nil if entry A was updated more recently than entry B."
   (time-less-p (acpe--updated (car b)) (acpe--updated (car a))))
 
-(defun acpe--list-revert (&rest _)
-  "Revert the `acpe-list' buffer if it exists."
-  (when-let* ((buf (get-buffer acpe--list-buffer-name)))
-    (with-current-buffer buf
-      (tabulated-list-revert))))
-
-(add-hook 'acpe-permission-hook #'acpe--list-revert)
-(add-hook 'acpe-finished-hook   #'acpe--list-revert)
-
 (defvar-keymap acpe-list-mode-map
   :doc "Keymap for `acpe-list-mode'."
   :parent tabulated-list-mode-map
@@ -1363,6 +1350,7 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
          ("Title"    0 t)])
   (setq tabulated-list-entries #'acpe--list-entries)
   (setq tabulated-list-sort-key '("Updated"))
+  (setq-local quit-window-kill-buffer t)
   (tabulated-list-init-header))
 
 (defun acpe-list-visit-buffer ()
@@ -1376,24 +1364,24 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
   (interactive)
   (when-let* ((conn (tabulated-list-get-id)))
     (acpe-accept conn)
-    (tabulated-list-revert)))
+    (revert-buffer)))
 
 (defun acpe-list-cancel ()
   "Cancel the current turn for the session at point."
   (interactive)
   (when-let* ((conn (tabulated-list-get-id)))
     (acpe-cancel conn)
-    (tabulated-list-revert)))
+    (revert-buffer)))
 
 ;;;###autoload
 (defun acpe-list ()
   "Display a list of all active acpe sessions."
   (interactive)
-  (let ((buf (get-buffer-create acpe--list-buffer-name)))
-    (with-current-buffer buf
-      (acpe-list-mode)
-      (tabulated-list-revert))
-    (pop-to-buffer buf)))
+  (with-current-buffer (get-buffer-create "*acpe list*")
+    (unless (derived-mode-p 'acpe-list-mode)
+      (acpe-list-mode))
+    (revert-buffer)
+    (pop-to-buffer (current-buffer))))
 
 ;;; Entry point
 
