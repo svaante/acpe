@@ -891,7 +891,7 @@ acpe-lazy-insert text property spanning it is resolved at send time."
     (or (unless current-prefix-arg
           (acpe--live-connection t))
         (let ((collections
-               (cl-loop for c in acpe--connections
+               (cl-loop for c in (acpe--connections-by-mru)
                         for buffer = (acpe--output-buffer c)
                         when (buffer-live-p buffer)
                         collect (cons (buffer-name buffer) c))))
@@ -987,15 +987,23 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 
 ;;; Connection management
 
+(defun acpe--connections-by-mru ()
+  "Return connections sorted by most recently visited prompt."
+  (let ((buffers (buffer-list)))
+    (cl-sort (copy-sequence acpe--connections) #'<
+             :key (lambda (conn)
+                    (or (cl-position (acpe--output-buffer conn) buffers)
+                        most-positive-fixnum)))))
+
 (defun acpe--live-connection (&optional nowarn)
   "Return the active connection for current project, or error unless NOWARN."
-  (let* ((conn
+  (let* ((project-dir (expand-file-name
+                       (if-let* ((proj (project-current)))
+                           (project-root proj)
+                         default-directory)))
+         (conn
           (or acpe--connection
-              (cl-find (expand-file-name
-                        (if-let* ((proj (project-current)))
-                            (project-root proj)
-                          default-directory))
-                       acpe--connections
+              (cl-find project-dir (acpe--connections-by-mru)
                        :key #'acpe--working-directory
                        :test #'equal))))
     (cond ((and conn (jsonrpc-running-p conn)) conn)
