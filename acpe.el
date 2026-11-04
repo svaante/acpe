@@ -761,6 +761,25 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
           (acpe--title conn) (plist-get existing :firstPrompt)))
   (acpe--prompt-update-mode-line conn))
 
+(defun acpe--session-fork (conn source)
+  "Fork the session of SOURCE into a new session on CONN."
+  (let* ((result
+          (acpe--request conn 'session/fork
+                         `( :sessionId ,(acpe--session-id source)
+                            :cwd ,(acpe--working-directory conn)
+                            :mcpServers [])))
+         (id (plist-get result :sessionId)))
+    (unless id
+      (error "Session/fork did not return a sessionId"))
+    (setf (acpe--session-id conn) id
+          (acpe--config-options conn)
+          (or (append (plist-get result :configOptions) nil)
+              (acpe--config-options source))
+          (acpe--title conn) (acpe--title source))
+    ;; Save now, the fork already has history
+    (acpe--session-save conn))
+  (acpe--prompt-update-mode-line conn))
+
 (defun acpe--session-prompt (conn)
   "Prompt to resume a session for CONN."
   (when-let*
@@ -877,6 +896,43 @@ Spans with acpe-lazy-insert property become resource blocks."
     (acpe--prompt-insert conn (propertize "\nrestarted" 'font-lock-face 'warning))
     (let ((acpe-command (combine-and-quote-strings command)))
       (acpe))))
+
+(defun acpe-fork (conn)
+  "Fork CONN's session into a new session buffer.
+The agent does not replay the history, so CONN's transcript is copied.
+Return the new session buffer."
+  (interactive (list (acpe--live-connection)))
+  (unless (acpe--session-id conn)
+    (user-error "No active session"))
+  ;; `json-parse-string' reads the empty {} capability as nil
+  (unless (plist-member (plist-get (acpe--capabilities conn) :sessionCapabilities)
+                        :fork)
+    (user-error "Agent %s does not support forking sessions"
+                (acpe--agent-name conn)))
+  (when (> (jsonrpc-continuation-count conn) 0)
+    (user-error "Wait for the current turn to finish before forking"))
+  (let* ((source-buffer (acpe--output-buffer conn))
+         (transcript (when (buffer-live-p source-buffer)
+                       (with-current-buffer source-buffer
+                         (buffer-substring (point-min) acpe--output-end))))
+         (input-ring (when (buffer-live-p source-buffer)
+                       (buffer-local-value 'comint-input-ring source-buffer)))
+         (default-directory (acpe--working-directory conn))
+         (acpe-command (combine-and-quote-strings
+                        (process-command (jsonrpc--process conn)))))
+    (with-current-buffer (acpe nil t conn)
+      (when transcript
+        ;; Replace welcome text with transcript
+        (let ((inhibit-read-only t))
+          (delete-region (point-min) acpe--output-end))
+        (acpe--prompt-insert acpe--connection transcript))
+      (when input-ring
+        (setq-local comint-input-ring (ring-copy input-ring)))
+      (acpe--prompt-insert
+       acpe--connection
+       (propertize (format "\nForked from session %s\n" (acpe--session-id conn))
+                   'font-lock-face 'warning))
+      (current-buffer))))
 
 ;;;###autoload
 (defun acpe-insert (conn)
@@ -1133,6 +1189,7 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
   "C-c C-c" #'acpe-accept
   "C-c C-k" #'acpe-cancel
   "C-c n"   #'acpe-restart
+  "C-c f"   #'acpe-fork
   "C-c m"   #'acpe-mode-next
   "C-c M"   #'acpe-mode-previous)
 
@@ -1154,6 +1211,7 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
   "C-c C-c"    #'acpe-accept
   "C-c C-k"    #'acpe-cancel
   "C-c n"      #'acpe-restart
+  "C-c f"      #'acpe-fork
   "TAB"        #'acpe-toggle-detail-at-point
   "C-c m"      #'acpe-mode-next
   "C-c M"      #'acpe-mode-previous)
@@ -1386,13 +1444,13 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 ;;; Entry point
 
 ;;;###autoload
-(defun acpe (&optional existing skip-project new-session)
+(defun acpe (&optional existing skip-project session)
   "Start an ACP session using `acpe-command'.
 The working directory is the project root or `default-directory'.
 EXISTING reuses a live connection instead of spawning a new process.
 SKIP-PROJECT non-nil uses `default-directory' instead of the project root.
-NEW-SESSION non-nil always creates a new session instead of prompting
-for an existing one to load.
+SESSION is a connection to fork, any other non-nil value creates a
+new session instead of prompting for one.
 Return the session buffer.
 
 With \\[universal-argument], always start a new session even if one exists
@@ -1447,10 +1505,12 @@ for the current project."
       (condition-case err
           (progn
             (acpe--initialize conn)
-            (if-let* (((not new-session))
+            (if-let* (((not session))
                       (session-id (acpe--session-prompt conn)))
                 (acpe--session-load conn session-id working-dir)
-              (acpe--session-new conn))
+              (if (cl-typep session 'acpe-connection)
+                  (acpe--session-fork conn session)
+                (acpe--session-new conn)))
             (acpe--make-prompt-buffer conn)
             (message "[acpe] Connected to %s (session %s)"
                      name (acpe--session-id conn))
