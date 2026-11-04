@@ -1403,8 +1403,8 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 \\{acpe-list-mode-map}"
   (setq tabulated-list-format
         [("Status"   6 t)
-         ("Updated" 20 acpe--list-updated-less-p)
-         ("Directory" 20 t)
+         ("Updated" 15 acpe--list-updated-less-p)
+         ("Directory" 30 t)
          ("Title"    0 t)])
   (setq tabulated-list-entries #'acpe--list-entries)
   (setq tabulated-list-sort-key '("Updated"))
