@@ -1449,8 +1449,8 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 The working directory is the project root or `default-directory'.
 EXISTING reuses a live connection instead of spawning a new process.
 SKIP-PROJECT non-nil uses `default-directory' instead of the project root.
-SESSION is a connection to fork, any other non-nil value creates a
-new session instead of prompting for one.
+SESSION is a session ID to load or a connection to fork, any other
+non-nil value creates a new session instead of prompting for one.
 Return the session buffer.
 
 With \\[universal-argument], always start a new session even if one exists
@@ -1505,8 +1505,9 @@ for the current project."
       (condition-case err
           (progn
             (acpe--initialize conn)
-            (if-let* (((not session))
-                      (session-id (acpe--session-prompt conn)))
+            (if-let* ((session-id
+                       (cond ((stringp session) session)
+                             ((not session) (acpe--session-prompt conn)))))
                 (acpe--session-load conn session-id working-dir)
               (if (cl-typep session 'acpe-connection)
                   (acpe--session-fork conn session)
@@ -1529,6 +1530,36 @@ EXISTING reuses a live connection instead of spawning a new process."
      (list (unless current-prefix-arg (acpe--live-connection 'nowarn)))))
   (let ((default-directory (expand-file-name acpe-scratch-directory)))
     (acpe existing t t)))
+
+;;; Org links
+
+(declare-function org-link-store-props "ol" (&rest plist))
+(declare-function org-link-set-parameters "ol" (type &rest parameters))
+
+(defun acpe--org-store-link ()
+  "Store an Org link to the current acpe session."
+  (when-let* (((derived-mode-p 'acpe-prompt-mode))
+              (id (acpe--session-id acpe--connection)))
+    (org-link-store-props :type "acpe"
+                          :link (concat "acpe:" id)
+                          :description (acpe--title acpe--connection))))
+
+(defun acpe--org-follow-link (id _)
+  "Visit the acpe session ID, loading it if needed."
+  (if-let* ((conn (cl-find id acpe--connections
+                           :key #'acpe--session-id :test #'equal)))
+      (pop-to-buffer (acpe--output-buffer conn))
+    (let* ((record (or (cl-find id (acpe--session-store-read)
+                                :key (lambda (e) (plist-get e :sessionId))
+                                :test #'equal)
+                       (user-error "Unknown acpe session %s" id)))
+           (default-directory (plist-get record :workingDirectory)))
+      (acpe nil t id))))
+
+(with-eval-after-load 'ol
+  (org-link-set-parameters "acpe"
+                           :follow #'acpe--org-follow-link
+                           :store #'acpe--org-store-link))
 
 (provide 'acpe)
 
