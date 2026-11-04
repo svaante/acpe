@@ -1116,7 +1116,7 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
   (let* ((name (string-trim text))
          (local (assoc name acpe--prompt-commands)))
     (cond (local (funcall (cadr local) conn))
-          ((cl-find name (acpe--slash-commands conn)
+          ((cl-find (car (split-string name)) (acpe--slash-commands conn)
                     :key (lambda (c)
                            (concat "/" (plist-get c :name)))
                     :test #'equal)
