@@ -1419,11 +1419,15 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
   (setq-local quit-window-kill-buffer t)
   (tabulated-list-init-header))
 
-(defun acpe-list-visit-buffer ()
-  "Switch to the session buffer at point."
-  (interactive)
+(defun acpe-list-visit-buffer (&optional single)
+  "Visit the session buffer at point.
+If optional argument SINGLE is non-nil, then also ensure there is only
+one window."
+  (interactive "P")
   (when-let* ((conn (tabulated-list-get-id)))
-    (pop-to-buffer (acpe--output-buffer conn))))
+    (switch-to-buffer (acpe--output-buffer conn))
+    (when single
+      (delete-other-windows))))
 
 (defun acpe-list-accept ()
   "Accept the oldest pending permission for the session at point."
@@ -1440,14 +1444,17 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
     (revert-buffer)))
 
 ;;;###autoload
-(defun acpe-list ()
-  "Display a list of all active acpe sessions."
-  (interactive)
+(defun acpe-list (&optional other-window-p)
+  "Display a list of all active acpe sessions.
+OTHER-WINDOW-P says to use another window."
+  (interactive "P")
   (with-current-buffer (get-buffer-create "*acpe list*")
     (unless (derived-mode-p 'acpe-list-mode)
       (acpe-list-mode))
     (revert-buffer)
-    (pop-to-buffer (current-buffer))))
+    (if other-window-p
+        (pop-to-buffer (current-buffer) t)
+      (switch-to-buffer (current-buffer)))))
 
 ;;; Entry point
 
