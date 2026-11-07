@@ -1380,24 +1380,53 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
                       '(compilation-info          "Idle")))))
     (propertize label 'font-lock-face face)))
 
+(defvar-local acpe-list--show-inactive nil
+  "Non-nil means also list stored sessions without a live connection.")
+
 (defun acpe--list-entries ()
-  "Return `tabulated-list-entries' for all live connections."
-  (mapcar
-   (lambda (conn)
-     (list conn
-           (vector
-            (acpe--list-status conn)
-            (format-seconds "%Y, %D, %H, %M, %z%S ago"
-                            (float-time (time-since (acpe--updated conn))))
-            (if-let* ((dir (acpe--working-directory conn)))
-                (file-name-nondirectory (directory-file-name dir))
-              "")
-            (or (acpe--title conn) ""))))
-   acpe--connections))
+  "Return `tabulated-list-entries' for all live connections.
+With `acpe-list--show-inactive', also include stored sessions.  The ID
+of an entry is either a connection or a session store record."
+  (append
+   (mapcar
+    (lambda (conn)
+      (list conn
+            (vector
+             (acpe--list-status conn)
+             (format-seconds "%Y, %D, %H, %M, %z%S ago"
+                             (float-time (time-since (acpe--updated conn))))
+             (if-let* ((dir (acpe--working-directory conn)))
+                 (file-name-nondirectory (directory-file-name dir))
+               "")
+             (or (acpe--title conn) ""))))
+    acpe--connections)
+   (when acpe-list--show-inactive
+     (cl-loop
+      with live = (mapcar #'acpe--session-id acpe--connections)
+      for record in (acpe--session-store-read)
+      for title = (plist-get record :firstPrompt)
+      unless (member (plist-get record :sessionId) live)
+      collect
+      (list record
+            (vector
+             (propertize "Off" 'font-lock-face 'shadow)
+             (format-seconds "%Y, %D, %H, %M, %z%S ago"
+                             (float-time (time-since (plist-get record :updatedAt))))
+             (file-name-nondirectory
+              (directory-file-name (plist-get record :workingDirectory)))
+             (if (stringp title)
+                 (car (string-lines (substring-no-properties title) t))
+               "")))))))
+
+(defun acpe--list-updated (id)
+  "Return the last update time of list entry ID."
+  (if (cl-typep id 'acpe-connection)
+      (acpe--updated id)
+    (plist-get id :updatedAt)))
 
 (defun acpe--list-updated-less-p (a b)
   "Return non-nil if entry A was updated more recently than entry B."
-  (time-less-p (acpe--updated (car b)) (acpe--updated (car a))))
+  (time-less-p (acpe--list-updated (car b)) (acpe--list-updated (car a))))
 
 (defvar-keymap acpe-list-mode-map
   :doc "Keymap for `acpe-list-mode'."
@@ -1424,33 +1453,40 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
 If optional argument SINGLE is non-nil, then also ensure there is only
 one window."
   (interactive "P")
-  (when-let* ((conn (tabulated-list-get-id)))
-    (switch-to-buffer (acpe--output-buffer conn))
+  (when-let* ((id (tabulated-list-get-id)))
+    (if (cl-typep id 'acpe-connection)
+        (switch-to-buffer (acpe--output-buffer id))
+      (acpe--session-visit (plist-get id :sessionId)))
     (when single
       (delete-other-windows))))
 
 (defun acpe-list-accept ()
   "Accept the oldest pending permission for the session at point."
   (interactive)
-  (when-let* ((conn (tabulated-list-get-id)))
+  (when-let* ((conn (tabulated-list-get-id))
+              ((cl-typep conn 'acpe-connection)))
     (acpe-accept conn)
     (revert-buffer)))
 
 (defun acpe-list-cancel ()
   "Cancel the current turn for the session at point."
   (interactive)
-  (when-let* ((conn (tabulated-list-get-id)))
+  (when-let* ((conn (tabulated-list-get-id))
+              ((cl-typep conn 'acpe-connection)))
     (acpe-cancel conn)
     (revert-buffer)))
 
 ;;;###autoload
-(defun acpe-list (&optional other-window-p)
+(defun acpe-list (&optional show-inactive other-window-p)
   "Display a list of all active acpe sessions.
+With prefix argument SHOW-INACTIVE, also list stored sessions without a
+live connection, across all directories.
 OTHER-WINDOW-P says to use another window."
   (interactive "P")
   (with-current-buffer (get-buffer-create "*acpe list*")
     (unless (derived-mode-p 'acpe-list-mode)
       (acpe-list-mode))
+    (setq acpe-list--show-inactive show-inactive)
     (revert-buffer)
     (if other-window-p
         (pop-to-buffer (current-buffer) t)
@@ -1546,6 +1582,18 @@ EXISTING reuses a live connection instead of spawning a new process."
   (let ((default-directory (expand-file-name acpe-scratch-directory)))
     (acpe existing t t)))
 
+(defun acpe--session-visit (id)
+  "Visit the acpe session ID, loading it if needed."
+  (if-let* ((conn (cl-find id acpe--connections
+                           :key #'acpe--session-id :test #'equal)))
+      (pop-to-buffer (acpe--output-buffer conn))
+    (let* ((record (or (cl-find id (acpe--session-store-read)
+                                :key (lambda (e) (plist-get e :sessionId))
+                                :test #'equal)
+                       (user-error "Unknown acpe session %s" id)))
+           (default-directory (plist-get record :workingDirectory)))
+      (acpe nil t id))))
+
 ;;; Org links
 
 (declare-function org-link-store-props "ol" (&rest plist))
@@ -1561,15 +1609,7 @@ EXISTING reuses a live connection instead of spawning a new process."
 
 (defun acpe--org-follow-link (id _)
   "Visit the acpe session ID, loading it if needed."
-  (if-let* ((conn (cl-find id acpe--connections
-                           :key #'acpe--session-id :test #'equal)))
-      (pop-to-buffer (acpe--output-buffer conn))
-    (let* ((record (or (cl-find id (acpe--session-store-read)
-                                :key (lambda (e) (plist-get e :sessionId))
-                                :test #'equal)
-                       (user-error "Unknown acpe session %s" id)))
-           (default-directory (plist-get record :workingDirectory)))
-      (acpe nil t id))))
+  (acpe--session-visit id))
 
 (with-eval-after-load 'ol
   (org-link-set-parameters "acpe"
