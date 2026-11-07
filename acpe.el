@@ -381,7 +381,12 @@ Called with the connection as argument."
                    ((equal (plist-get content :type) "text"))
                    (text (plist-get content :text)))
          (unless (acpe--output-end-get conn 'acpe-message-chunk)
-           (setq text (concat (propertize "\n" 'acpe-message-stream-start t) text)))
+           ;; Separate message from preceding tool call with a blank line
+           (let ((sep (if (acpe--output-end-get conn 'acpe-tool-call-id)
+                          "\n\n"
+                        "\n")))
+             (setq text (concat (propertize sep 'acpe-message-stream-start t)
+                                text))))
          (acpe--prompt-insert conn (propertize text 'acpe-message-chunk t))))
       ("tool_call"
        (acpe--flush-thought-chunks conn)
@@ -447,10 +452,13 @@ Called with the connection as argument."
     (with-current-buffer buffer
       (when-let* ((start (text-property-any (point-min) acpe--output-end
                                             'acpe-message-stream-start t)))
-        (let* ((text (buffer-substring-no-properties (1+ start) acpe--output-end))
+        (let* ((text-start (next-single-property-change
+                            start 'acpe-message-stream-start nil acpe--output-end))
+               (sep (buffer-substring-no-properties start text-start))
+               (text (buffer-substring-no-properties text-start acpe--output-end))
                (inhibit-read-only t))
           (delete-region start acpe--output-end)
-          (acpe--prompt-insert conn "\n" (acpe--render-markdown text)))))))
+          (acpe--prompt-insert conn sep (acpe--render-markdown text)))))))
 
 
 ;;; Thought and Tool lines
