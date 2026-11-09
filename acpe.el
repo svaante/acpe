@@ -344,7 +344,8 @@ Called with the connection as argument."
   (when-let* ((buffer (acpe--output-buffer conn))
               ((buffer-live-p buffer)))
     (with-current-buffer buffer
-      (get-text-property (1- acpe--output-end) prop))))
+      (when (> acpe--output-end (point-min))
+        (get-text-property (1- acpe--output-end) prop)))))
 
 (cl-defmethod acpe-handle-notification (conn (_method (eql session/update))
                                              &key sessionId update &allow-other-keys)
@@ -359,6 +360,7 @@ Called with the connection as argument."
              (append (plist-get update :configOptions) nil))
        (acpe--prompt-update-mode-line conn))
       ("agent_thought_chunk"
+       (acpe--flush-message-chunks conn)
        (when-let* ((content (plist-get update :content))
                    ((equal (plist-get content :type) "text"))
                    (text (plist-get content :text)))
@@ -385,9 +387,12 @@ Called with the connection as argument."
            (let ((sep (if (acpe--output-end-get conn 'acpe-tool-call-id)
                           "\n\n"
                         "\n")))
-             (setq text (concat (propertize sep 'acpe-message-stream-start t)
-                                text))))
-         (acpe--prompt-insert conn (propertize text 'acpe-message-chunk t))))
+             (acpe--prompt-insert conn (propertize sep 'acpe-message-chunk t))))
+         (acpe--prompt-insert conn (propertize text
+                                               'acpe-message-chunk t
+                                               'acpe-message-raw t))
+         (when acpe-markdown-command
+           (acpe--render-message-chunks conn))))
       ("tool_call"
        (acpe--flush-thought-chunks conn)
        (acpe--flush-message-chunks conn)
@@ -445,20 +450,48 @@ Called with the connection as argument."
           (buffer-string))
       (error text))))
 
-(defun acpe--flush-message-chunks (conn)
-  "Flush and render pending message chunks for CONN."
+(defun acpe--markdown-block-end (start end)
+  "Return start of the last top-level markdown block in START..END."
+  (save-excursion
+    (goto-char end)
+    (catch 'found
+      (while (re-search-backward "\n[ \t]*\n\\([^ \t\n]\\)" start t)
+        (let ((pos (match-beginning 1)))
+          (unless (cl-oddp (how-many "^\\(```\\|~~~\\)" start (point)))
+            (throw 'found pos)))))))
+
+(defun acpe--render-message-chunks (conn &optional final)
+  "Render streaming message in CONN up to its last complete block.
+With FINAL, render all of it."
   (when-let* ((buffer (acpe--output-buffer conn))
               ((buffer-live-p buffer)))
     (with-current-buffer buffer
-      (when-let* ((start (text-property-any (point-min) acpe--output-end
-                                            'acpe-message-stream-start t)))
-        (let* ((text-start (next-single-property-change
-                            start 'acpe-message-stream-start nil acpe--output-end))
-               (sep (buffer-substring-no-properties start text-start))
-               (text (buffer-substring-no-properties text-start acpe--output-end))
-               (inhibit-read-only t))
-          (delete-region start acpe--output-end)
-          (acpe--prompt-insert conn sep (acpe--render-markdown text)))))))
+      (when-let* (((acpe--output-end-get conn 'acpe-message-raw))
+                  (start (previous-single-property-change
+                          acpe--output-end 'acpe-message-raw))
+                  (end (if final
+                           acpe--output-end
+                         (acpe--markdown-block-end start acpe--output-end)))
+                  (text (buffer-substring-no-properties start end))
+                  ((not (string-blank-p text)))
+                  (inhibit-read-only t))
+        (save-excursion
+          (goto-char start)
+          (insert (propertize (concat (string-trim-right
+                                       (acpe--render-markdown text))
+                                      (if final "\n" "\n\n"))
+                              'acpe-message-chunk t))
+          (delete-char (length text)))))))
+
+(defun acpe--flush-message-chunks (conn)
+  "Flush and render pending message chunks for CONN."
+  (acpe--render-message-chunks conn t)
+  (when (acpe--output-end-get conn 'acpe-message-chunk)
+    (with-current-buffer (acpe--output-buffer conn)
+      (let ((inhibit-read-only t))
+        (remove-text-properties
+         (previous-single-property-change acpe--output-end 'acpe-message-chunk)
+         acpe--output-end '(acpe-message-chunk nil acpe-message-raw nil))))))
 
 
 ;;; Thought and Tool lines
