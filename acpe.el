@@ -761,6 +761,7 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
   (let* ((records (or (acpe--session-store-read) '()))
          (record `( :sessionId ,(acpe--session-id conn)
                     :agentName ,(acpe--agent-name conn)
+                    :command ,(process-command (jsonrpc--process conn))
                     :workingDirectory ,(acpe--working-directory conn)
                     :configOptions ,(acpe--config-options conn)
                     ;; XXX Title is stored as :firstPrompt for compat
@@ -820,45 +821,6 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
     ;; Save now, the fork already has history
     (acpe--session-save conn))
   (acpe--prompt-update-mode-line conn))
-
-(defun acpe--session-prompt (conn)
-  "Prompt to resume a session for CONN."
-  (when-let*
-      ((sessions
-        (cl-sort (cl-remove-if-not
-                  (lambda (s)
-                    (and (equal (plist-get s :agentName) (acpe--agent-name conn))
-                         (equal (plist-get s :workingDirectory) (acpe--working-directory conn))))
-                  (acpe--session-store-read))
-                 #'> :key (lambda (s) (or (plist-get s :updatedAt) 0)))))
-    (let* ((new-label "*New session*")
-           (annotated (mapcar (lambda (s)
-                                `(,(format-time-string
-                                    "%Y-%m-%d %H:%M"
-                                    (seconds-to-time (plist-get s :updatedAt)))
-                                  . ,s))
-                              sessions))
-           (pairs
-            `((,new-label . nil)
-              ,@(mapcar (pcase-lambda (`(,name . ,s))
-                          `(,name . ,(plist-get s :sessionId)))
-                        annotated)))
-           (collection
-            (lambda (string predicate action)
-              (if (eq action 'metadata)
-                  `(metadata (display-sort-function . identity)
-                             (cycle-sort-function . identity)
-                             (annotation-function
-                              . ,(lambda (key)
-                                   (when-let* ((s (cdr (assoc key annotated)))
-                                               (title (plist-get s :firstPrompt))
-                                               ((stringp title)))
-                                     (concat "  " (car (string-lines (substring-no-properties title) t)))))))
-                (complete-with-action action pairs string predicate)))))
-      (cdr (assoc (completing-read
-                   (format-prompt "Session" new-label)
-                   collection nil t nil nil new-label)
-                  pairs)))))
 
 (defun acpe--prompt-update-mode-line (conn)
   "Force mode-line update in CONN's prompt buffer."
@@ -1413,6 +1375,8 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
                       '(compilation-info          "Idle")))))
     (propertize label 'font-lock-face face)))
 
+(defvar acpe-list-max-entries 50)
+
 (defvar-local acpe-list--show-inactive nil
   "Non-nil means also list stored sessions without a live connection.")
 
@@ -1436,7 +1400,7 @@ of an entry is either a connection or a session store record."
    (when acpe-list--show-inactive
      (cl-loop
       with live = (mapcar #'acpe--session-id acpe--connections)
-      for record in (acpe--session-store-read)
+      for record in (take acpe-list-max-entries (acpe--session-store-read))
       for title = (plist-get record :firstPrompt)
       unless (member (plist-get record :sessionId) live)
       collect
@@ -1469,7 +1433,7 @@ of an entry is either a connection or a session store record."
   "C-c C-k" #'acpe-list-cancel)
 
 (define-derived-mode acpe-list-mode tabulated-list-mode "Acpe Menu"
-  "Major mode listing active acpe sessions.
+  "Major mode listing acpe sessions.
 \\{acpe-list-mode-map}"
   (setq tabulated-list-format
         [("Status"   6 t)
@@ -1533,8 +1497,8 @@ OTHER-WINDOW-P says to use another window."
 The working directory is the project root or `default-directory'.
 EXISTING reuses a live connection instead of spawning a new process.
 SKIP-PROJECT non-nil uses `default-directory' instead of the project root.
-SESSION is a session ID to load or a connection to fork, any other
-non-nil value creates a new session instead of prompting for one.
+SESSION is a session ID to load or a connection to fork, otherwise a
+new session is created.
 Return the session buffer.
 
 With \\[universal-argument], always start a new session even if one exists
@@ -1589,13 +1553,11 @@ for the current project."
       (condition-case err
           (progn
             (acpe--initialize conn)
-            (if-let* ((session-id
-                       (cond ((stringp session) session)
-                             ((not session) (acpe--session-prompt conn)))))
-                (acpe--session-load conn session-id working-dir)
-              (if (cl-typep session 'acpe-connection)
-                  (acpe--session-fork conn session)
-                (acpe--session-new conn)))
+            (cond ((stringp session)
+                   (acpe--session-load conn session working-dir))
+                  ((cl-typep session 'acpe-connection)
+                   (acpe--session-fork conn session))
+                  (t (acpe--session-new conn)))
             (acpe--make-prompt-buffer conn)
             (message "[acpe] Connected to %s (session %s)"
                      name (acpe--session-id conn))
@@ -1613,7 +1575,7 @@ EXISTING reuses a live connection instead of spawning a new process."
          (acpe--connection nil))
      (list (unless current-prefix-arg (acpe--live-connection 'nowarn)))))
   (let ((default-directory (expand-file-name acpe-scratch-directory)))
-    (acpe existing t t)))
+    (acpe existing t)))
 
 (defun acpe--session-visit (id)
   "Visit the acpe session ID, loading it if needed."
@@ -1624,6 +1586,9 @@ EXISTING reuses a live connection instead of spawning a new process."
                                 :key (lambda (e) (plist-get e :sessionId))
                                 :test #'equal)
                        (user-error "Unknown acpe session %s" id)))
+           (acpe-command (if-let* ((command (plist-get record :command)))
+                             (combine-and-quote-strings command)
+                           acpe-command))
            (default-directory (plist-get record :workingDirectory)))
       (acpe nil t id))))
 
