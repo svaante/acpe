@@ -1074,22 +1074,32 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
                     (or (cl-position (acpe--output-buffer conn) buffers)
                         most-positive-fixnum)))))
 
+(defun acpe--project-dir (&optional dir)
+  "Return the project root of DIR, or DIR itself if not in a project.
+DIR defaults to `default-directory'."
+  (let ((dir (or dir default-directory)))
+    (expand-file-name ; normalize
+     (if-let* ((proj (project-current nil dir)))
+         (project-root proj)
+       dir))))
+
 (defun acpe--live-connection (&optional nowarn)
-  "Return the active connection for `default-directory', or error unless NOWARN.
-A connection matches if `default-directory' is within its working
-directory or within the directory its prompt buffer is tracking, see
+  "Return the active connection for current project, or error unless NOWARN.
+A connection matches if its working directory is the project root, or
+if its prompt buffer is tracking a directory in the project, see
 `acpe-dirtrack'."
-  (let* ((dir (expand-file-name default-directory))
+  (let* ((project-dir (acpe--project-dir))
          (conn
           (or acpe--connection
               (cl-find-if
                (lambda (conn)
                  (let ((buffer (acpe--output-buffer conn)))
-                   (or (file-in-directory-p dir (acpe--working-directory conn))
+                   (or (equal project-dir (acpe--working-directory conn))
                        (and (buffer-live-p buffer)
-                            (file-in-directory-p
-                             dir (buffer-local-value 'default-directory
-                                                     buffer))))))
+                            (equal project-dir
+                                   (acpe--project-dir
+                                    (buffer-local-value 'default-directory
+                                                        buffer)))))))
                (acpe--connections-by-mru)))))
     (cond ((and conn (jsonrpc-running-p conn)) conn)
           (nowarn nil)
@@ -1549,11 +1559,9 @@ for the current project."
                                for n = (if (= i 1) name (format "%s<%d>" name i))
                                unless (get-buffer (format " *%s stderr*" n))
                                return n))
-           (working-dir (expand-file-name
-                         (or (when-let* (((not skip-project))
-                                         (proj (project-current)))
-                               (project-root proj))
-                             default-directory)))
+           (working-dir (if skip-project
+                            (expand-file-name default-directory)
+                          (acpe--project-dir)))
            (conn
             (make-instance
              'acpe-connection
