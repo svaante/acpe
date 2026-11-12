@@ -130,7 +130,10 @@ Called with the connection as argument."
     :documentation "Config options provided by the agent (list of PLISTs).")
    (title
     :accessor acpe--title :initform nil
-    :documentation "Session title, defaults to the first prompt.")
+    :documentation "Session title provided by the agent.")
+   (last-prompt
+    :accessor acpe--last-prompt :initform nil
+    :documentation "Most recent prompt sent to the agent.")
    (usage
     :accessor acpe--usage :initform nil
     :documentation "Cons (USED . SIZE) from usage_update.")
@@ -788,6 +791,7 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
                     :configOptions ,(acpe--config-options conn)
                     ;; XXX Title is stored as :firstPrompt for compat
                     :firstPrompt ,(acpe--title conn)
+                    :lastPrompt ,(acpe--last-prompt conn)
                     :updatedAt ,(float-time))))
     (acpe--session-store-write
      (cons record (cl-remove (acpe--session-id conn) records
@@ -822,7 +826,8 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
           (acpe--config-options conn)
           (or (append (plist-get result :configOptions) nil)
               (plist-get existing :configOptions))
-          (acpe--title conn) (plist-get existing :firstPrompt)))
+          (acpe--title conn) (plist-get existing :firstPrompt)
+          (acpe--last-prompt conn) (plist-get existing :lastPrompt)))
   (acpe--prompt-update-mode-line conn))
 
 (defun acpe--session-fork (conn source)
@@ -839,7 +844,8 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
           (acpe--config-options conn)
           (or (append (plist-get result :configOptions) nil)
               (acpe--config-options source))
-          (acpe--title conn) (acpe--title source))
+          (acpe--title conn) (acpe--title source)
+          (acpe--last-prompt conn) (acpe--last-prompt source))
     ;; Save now, the fork already has history
     (acpe--session-save conn))
   (acpe--prompt-update-mode-line conn))
@@ -878,8 +884,7 @@ Spans with acpe-lazy-insert property become resource blocks."
     (user-error "Connection not initialized"))
   (unless (acpe--session-id conn)
     (user-error "No active session"))
-  (unless (acpe--title conn)
-    (setf (acpe--title conn) (substring-no-properties text)))
+  (setf (acpe--last-prompt conn) (substring-no-properties text))
   (let* ((embedded-p
           (eq t (plist-get
                  (plist-get (acpe--capabilities conn) :promptCapabilities)
@@ -1394,7 +1399,8 @@ if its prompt buffer is tracking a directory in the project, see
                "* Welcome to the Acpe prompt *\n"
                "Type /help for a list of commands.\n"
                "\n"
-               (when-let* ((title (acpe--title conn)))
+               (when-let* ((title (or (acpe--title conn)
+                                      (acpe--last-prompt conn))))
                  (format "Session `%s' continued...\n\n" title)))))
       (acpe--prompt-update-mode-line conn))))
 
@@ -1436,13 +1442,17 @@ of an entry is either a connection or a session store record."
              (if-let* ((dir (acpe--working-directory conn)))
                  (file-name-nondirectory (directory-file-name dir))
                "")
-             (or (acpe--title conn) ""))))
+             (acpe--list-first-line (or (acpe--title conn)
+                                        (acpe--last-prompt conn)))
+             (acpe--list-first-line (when (acpe--title conn)
+                                      (acpe--last-prompt conn))))))
     acpe--connections)
    (when acpe-list--show-inactive
      (cl-loop
       with live = (mapcar #'acpe--session-id acpe--connections)
       for record in (take acpe-list-max-entries (acpe--session-store-read))
       for title = (plist-get record :firstPrompt)
+      for prompt = (plist-get record :lastPrompt)
       unless (member (plist-get record :sessionId) live)
       collect
       (list record
@@ -1452,9 +1462,14 @@ of an entry is either a connection or a session store record."
                              (float-time (time-since (plist-get record :updatedAt))))
              (file-name-nondirectory
               (directory-file-name (plist-get record :workingDirectory)))
-             (if (stringp title)
-                 (car (string-lines (substring-no-properties title) t))
-               "")))))))
+             (acpe--list-first-line (or title prompt))
+             (acpe--list-first-line (when title prompt))))))))
+
+(defun acpe--list-first-line (text)
+  "Return the first non-empty line of TEXT, or the empty string."
+  (if (stringp text)
+      (or (car (string-lines (substring-no-properties text) t)) "")
+    ""))
 
 (defun acpe--list-updated (id)
   "Return the last update time of list entry ID."
@@ -1480,7 +1495,8 @@ of an entry is either a connection or a session store record."
         [("Status"   6 t)
          ("Updated" 15 acpe--list-updated-less-p)
          ("Directory" 30 t)
-         ("Title"    0 t)])
+         ("Title"    45 t)
+         ("Last Prompt" 0 t)])
   (setq tabulated-list-entries #'acpe--list-entries)
   (setq tabulated-list-sort-key '("Updated"))
   (setq-local quit-window-kill-buffer t)
@@ -1642,7 +1658,8 @@ EXISTING reuses a live connection instead of spawning a new process."
               (id (acpe--session-id acpe--connection)))
     (org-link-store-props :type "acpe"
                           :link (concat "acpe:" id)
-                          :description (acpe--title acpe--connection))))
+                          :description (or (acpe--title acpe--connection)
+                                           (acpe--last-prompt acpe--connection)))))
 
 (defun acpe--org-follow-link (id _)
   "Visit the acpe session ID, loading it if needed."
