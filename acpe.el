@@ -57,6 +57,13 @@
   "Shell command used to start the ACP agent."
   :type '(choice (string :tag "Command") (const :tag "None" nil)))
 
+(defcustom acpe-dirtrack t
+  "Non-nil means prompt buffer `default-directory' follows the agent.
+The directory is taken from the locations reported by tool calls, so
+commands like `shell', `find-file' and `vc-dir' start where the agent
+is currently working."
+  :type 'boolean)
+
 (defcustom acpe-session-store-file
   (locate-user-emacs-file "acpe-sessions.eld")
   "File where acpe stores known session IDs for later resume."
@@ -404,9 +411,11 @@ Called with the connection as argument."
                     (acpe--render-tool-call-line)
                     (concat "\n")
                     (acpe--prompt-insert conn))
+       (acpe--dirtrack conn (plist-get update :locations))
        ;; Retry permission positioning now that tool_call is rendered.
        (acpe--update-permission-queue-positions conn))
       ("tool_call_update"
+       (acpe--dirtrack conn (plist-get update :locations))
        (when-let* ((id (plist-get update :toolCallId)))
          (apply #'acpe--update-tool-call conn id update)))
       ("usage_update"
@@ -423,6 +432,19 @@ Called with the connection as argument."
        ;; TODO Figure out what to do on plan
        )))
   nil)
+
+(defun acpe--dirtrack (conn locations)
+  "Set CONN's prompt buffer `default-directory' from tool call LOCATIONS."
+  (when-let* ((acpe-dirtrack)
+              (path (plist-get (car (append locations nil)) :path))
+              (dir (if (file-directory-p path)
+                       (file-name-as-directory path)
+                     (file-name-directory path)))
+              ((file-directory-p dir))
+              (buffer (acpe--output-buffer conn))
+              ((buffer-live-p buffer)))
+    (with-current-buffer buffer
+      (setq default-directory dir))))
 
 ;;; Output rendering
 
@@ -1309,6 +1331,7 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
         (acpe-prompt-mode))
       (setq-local
        acpe--connection conn
+       default-directory (acpe--working-directory conn)
        mode-line-process
        `((:eval
           (if (and acpe--connection
