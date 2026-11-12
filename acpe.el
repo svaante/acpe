@@ -30,7 +30,9 @@
 ;; Acpe is an Agent Client Protocol (ACP) client for Emacs.
 ;;
 ;; Usage:
-;;   Call M-x acpe your-favorite-acp-server to start a ACP session.
+;;   Customize `acpe-command' to your-favorite-acp-server
+;;   * M-x acpe to start a session in the current project
+;;   * M-x acpe-list to show all sessions
 ;;
 
 ;;; Code:
