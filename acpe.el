@@ -1229,6 +1229,8 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
               comint-process-echoes nil
               scroll-conservatively 101
               acpe--prompt-overlay-arrow (make-marker)
+              imenu-generic-expression
+              `(("Prompt" ,(concat comint-prompt-regexp " *\\(\\S-.*\\)") 1))
               buffer-invisibility-spec (cons '(acpe-detail . t)
                                              buffer-invisibility-spec))
   (add-to-list 'overlay-arrow-variable-list 'acpe--prompt-overlay-arrow)
