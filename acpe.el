@@ -1567,7 +1567,8 @@ for the current project."
      (list existing)))
   (if existing
       ;; Live connection exists, show its buffer.
-      (pop-to-buffer (acpe--output-buffer existing))
+      (pop-to-buffer (acpe--output-buffer existing)
+                     '((display-buffer-reuse-window display-buffer-same-window)))
     (unless acpe-command (user-error "Set `acpe-command' first"))
     (let* ((cmd-list (split-string-and-unquote acpe-command))
            (name (car cmd-list))
@@ -1618,7 +1619,8 @@ for the current project."
             (acpe--make-prompt-buffer conn)
             (message "[acpe] Connected to %s (session %s)"
                      name (acpe--session-id conn))
-            (pop-to-buffer (acpe--output-buffer conn)))
+            (pop-to-buffer (acpe--output-buffer conn)
+                           '((display-buffer-reuse-window display-buffer-same-window))))
         (t
          (jsonrpc-shutdown conn)
          (signal (car err) (cdr err)))))))
@@ -1638,7 +1640,8 @@ EXISTING reuses a live connection instead of spawning a new process."
   "Visit the acpe session ID, loading it if needed."
   (if-let* ((conn (cl-find id acpe--connections
                            :key #'acpe--session-id :test #'equal)))
-      (pop-to-buffer (acpe--output-buffer conn))
+      (pop-to-buffer (acpe--output-buffer conn)
+                     '((display-buffer-reuse-window display-buffer-same-window)))
     (let* ((record (or (cl-find id (acpe--session-store-read)
                                 :key (lambda (e) (plist-get e :sessionId))
                                 :test #'equal)
