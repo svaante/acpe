@@ -926,8 +926,9 @@ Spans with acpe-lazy-insert property become resource blocks."
     (while (jsonrpc-running-p conn)
       (accept-process-output nil 0.1))
     (acpe--prompt-insert conn (propertize "\nrestarted" 'font-lock-face 'warning))
-    (let ((acpe-command (combine-and-quote-strings command)))
-      (acpe))))
+    (let ((acpe-command (combine-and-quote-strings command))
+          (default-directory (acpe--working-directory conn)))
+      (acpe nil t))))
 
 (defun acpe-fork (conn)
   "Fork CONN's session into a new session buffer.
