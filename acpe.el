@@ -1075,16 +1075,22 @@ ALLOW-ALWAYS sends allow_always instead of allow_once."
                         most-positive-fixnum)))))
 
 (defun acpe--live-connection (&optional nowarn)
-  "Return the active connection for current project, or error unless NOWARN."
-  (let* ((project-dir (expand-file-name
-                       (if-let* ((proj (project-current)))
-                           (project-root proj)
-                         default-directory)))
+  "Return the active connection for `default-directory', or error unless NOWARN.
+A connection matches if `default-directory' is within its working
+directory or within the directory its prompt buffer is tracking, see
+`acpe-dirtrack'."
+  (let* ((dir (expand-file-name default-directory))
          (conn
           (or acpe--connection
-              (cl-find project-dir (acpe--connections-by-mru)
-                       :key #'acpe--working-directory
-                       :test #'equal))))
+              (cl-find-if
+               (lambda (conn)
+                 (let ((buffer (acpe--output-buffer conn)))
+                   (or (file-in-directory-p dir (acpe--working-directory conn))
+                       (and (buffer-live-p buffer)
+                            (file-in-directory-p
+                             dir (buffer-local-value 'default-directory
+                                                     buffer))))))
+               (acpe--connections-by-mru)))))
     (cond ((and conn (jsonrpc-running-p conn)) conn)
           (nowarn nil)
           (t (user-error "No active acpe connection")))))
