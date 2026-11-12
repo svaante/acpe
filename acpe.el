@@ -59,6 +59,7 @@
   "Shell command used to start the ACP agent."
   :type '(choice (string :tag "Command") (const :tag "None" nil)))
 
+;; Like shell.el, try to figure out where the f the agent went
 (defcustom acpe-dirtrack t
   "Non-nil means prompt buffer `default-directory' follows the agent.
 The directory is taken from the locations reported by tool calls, so
