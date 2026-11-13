@@ -62,9 +62,9 @@
 ;; Like shell.el, try to figure out where the f the agent went
 (defcustom acpe-dirtrack t
   "Non-nil means prompt buffer `default-directory' follows the agent.
-The directory is taken from the locations reported by tool calls, so
-commands like `shell', `find-file' and `vc-dir' start where the agent
-is currently working."
+The directory is taken from the locations reported by tool calls, or
+from `cd' in shell commands the agent runs, so commands like `shell',
+`find-file' and `vc-dir' start where the agent is currently working."
   :type 'boolean)
 
 (defcustom acpe-session-store-file
@@ -417,11 +417,11 @@ Called with the connection as argument."
                     (acpe--render-tool-call-line)
                     (concat "\n")
                     (acpe--prompt-insert conn))
-       (acpe--dirtrack conn (plist-get update :locations))
+       (acpe--dirtrack conn update)
        ;; Retry permission positioning now that tool_call is rendered.
        (acpe--update-permission-queue-positions conn))
       ("tool_call_update"
-       (acpe--dirtrack conn (plist-get update :locations))
+       (acpe--dirtrack conn update)
        (when-let* ((id (plist-get update :toolCallId)))
          (apply #'acpe--update-tool-call conn id update)))
       ("usage_update"
@@ -439,19 +439,45 @@ Called with the connection as argument."
        )))
   nil)
 
-(defun acpe--dirtrack (conn locations)
-  "Set CONN's prompt buffer `default-directory' from tool call LOCATIONS."
+(defun acpe--dirtrack-command (command)
+  "Return the absolute directory of the last `cd' in COMMAND, or nil."
+  (when (and (stringp command)
+             (string-match
+              (rx (or (seq (* anything) (any ";&|\n")) bos)
+                  (* space)
+                  (* (+ (any alnum "_")) "=" (* (not space)) (+ space))
+                  "cd" (+ space)
+                  (or (seq ?\" (group (+ (not ?\"))) ?\")
+                      (seq ?' (group (+ (not ?'))) ?')
+                      (group (+ (not (any space ";&|()")))))
+                  (* space) (or (any ";&|\n") eos))
+              command))
+    (let ((dir (or (match-string 1 command)
+                   (match-string 2 command)
+                   (match-string 3 command))))
+      (when (file-name-absolute-p dir)
+        dir))))
+
+(defun acpe--dirtrack (conn update)
+  "Set CONN's prompt buffer `default-directory' from tool call UPDATE.
+Use the first of UPDATE's locations, or else `cd' in the tool call's
+command."
   (when-let* ((acpe-dirtrack)
-              (path (plist-get (car (append locations nil)) :path))
-              (dir (if (file-directory-p path)
-                       (file-name-as-directory path)
-                     (file-name-directory path)))
-              ((file-directory-p dir))
               (buffer (acpe--output-buffer conn))
               ((buffer-live-p buffer)))
     (with-current-buffer buffer
-      (setq default-directory dir))))
-
+      (when-let* ((dir
+                   (if-let* ((path (plist-get (car (append (plist-get update :locations) nil))
+                                              :path)))
+                       (if (file-directory-p path)
+                           path
+                         (file-name-directory path))
+                     (acpe--dirtrack-command
+                      (plist-get (plist-get update :rawInput) :command))))
+                  (dir (file-name-as-directory (expand-file-name dir)))
+                  ((file-directory-p dir)))
+        (setq default-directory dir)))))
+
 ;;; Output rendering
 
 (defun acpe--render-markdown (text)
