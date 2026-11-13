@@ -1119,10 +1119,12 @@ DIR defaults to `default-directory'."
        dir))))
 
 (defun acpe--live-connection (&optional nowarn)
-  "Return the active connection for current project, or error unless NOWARN.
-A connection matches if its working directory is the project root, or
-if its prompt buffer is tracking a directory in the project, see
-`acpe-dirtrack'."
+  "Return the current buffer's connection, or the one for the current project.
+If there is none or it is not running, signal an error, or return nil if
+NOWARN is non-nil.
+A connection matches the project if its working directory is the
+project root, or if its prompt buffer is tracking a directory in the
+project, see `acpe-dirtrack'."
   (let* ((project-dir (acpe--project-dir))
          (conn
           (or acpe--connection
@@ -1658,8 +1660,8 @@ for the current project."
   "Start a scratch ACP session in `acpe-scratch-directory'.
 EXISTING reuses a live connection instead of spawning a new process."
   (interactive
-   (let ((default-directory (expand-file-name acpe-scratch-directory))
-         (acpe--connection nil))
+   (with-temp-buffer ; no buffer local `acpe--connection'
+     (setq default-directory (expand-file-name acpe-scratch-directory))
      (list (unless current-prefix-arg (acpe--live-connection 'nowarn)))))
   (let ((default-directory (expand-file-name acpe-scratch-directory)))
     (acpe existing t)))
