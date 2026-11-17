@@ -67,6 +67,16 @@ from `cd' in shell commands the agent runs, so commands like `shell',
 `find-file' and `vc-dir' start where the agent is currently working."
   :type 'boolean)
 
+(defcustom acpe-dirtrack-exclude
+  (list (rx bos (or "/tmp/" "/private/" "/var/folders/" "/dev/" "/proc/"))
+        (concat "\\`" (regexp-quote
+                       (file-name-as-directory
+                        (expand-file-name temporary-file-directory)))))
+  "List of regexps for directories `acpe-dirtrack' should not follow.
+Each regexp is matched against the absolute directory name, which
+ends in a slash."
+  :type '(repeat regexp))
+
 (defcustom acpe-session-store-file
   (locate-user-emacs-file "acpe-sessions.eld")
   "File where acpe stores known session IDs for later resume."
@@ -475,7 +485,9 @@ command."
                      (acpe--dirtrack-command
                       (plist-get (plist-get update :rawInput) :command))))
                   (dir (file-name-as-directory (expand-file-name dir)))
-                  ((file-directory-p dir)))
+                  ((file-directory-p dir))
+                  ((not (seq-some (lambda (re) (string-match-p re dir))
+                                  acpe-dirtrack-exclude))))
         (setq default-directory dir)))))
 
 ;;; Output rendering
