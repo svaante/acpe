@@ -63,8 +63,9 @@
 (defcustom acpe-dirtrack t
   "Non-nil means prompt buffer `default-directory' follows the agent.
 The directory is taken from the locations reported by tool calls, or
-from `cd' in shell commands the agent runs, so commands like `shell',
-`find-file' and `vc-dir' start where the agent is currently working."
+from the first `cd' in shell commands the agent runs, so commands like
+`shell', `find-file' and `vc-dir' start where the agent is doing its
+work, such as a worktree."
   :type 'boolean)
 
 (defcustom acpe-dirtrack-exclude
@@ -450,10 +451,12 @@ Called with the connection as argument."
   nil)
 
 (defun acpe--dirtrack-command (command)
-  "Return the absolute directory of the last `cd' in COMMAND, or nil."
+  "Return the absolute directory of the first `cd' in COMMAND, or nil.
+The first `cd' is where the work happens; later ones are usually the
+agent changing back."
   (when (and (stringp command)
              (string-match
-              (rx (or (seq (* anything) (any ";&|\n")) bos)
+              (rx (or bos (any ";&|\n"))
                   (* space)
                   (* (+ (any alnum "_")) "=" (* (not space)) (+ space))
                   "cd" (+ space)
@@ -470,8 +473,8 @@ Called with the connection as argument."
 
 (defun acpe--dirtrack (conn update)
   "Set CONN's prompt buffer `default-directory' from tool call UPDATE.
-Use the first of UPDATE's locations, or else `cd' in the tool call's
-command."
+Use the first of UPDATE's locations, or else the first `cd' in the
+tool call's command."
   (when-let* ((acpe-dirtrack)
               (buffer (acpe--output-buffer conn))
               ((buffer-live-p buffer)))
