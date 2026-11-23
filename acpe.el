@@ -442,7 +442,8 @@ Called with the connection as argument."
          (acpe--prompt-update-mode-line conn)))
       ("session_info_update"
        (when-let* ((title (plist-get update :title)))
-         (setf (acpe--title conn) title)))
+         (setf (acpe--title conn) title)
+         (acpe--prompt-update-mode-line conn)))
       ("plan"
        (acpe--flush-thought-chunks conn)
        (acpe--flush-message-chunks conn)
@@ -895,10 +896,19 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
   (acpe--prompt-update-mode-line conn))
 
 (defun acpe--prompt-update-mode-line (conn)
-  "Force mode-line update in CONN's prompt buffer."
+  "Force mode-line update in CONN's prompt buffer.
+Also show CONN's title in the header line, once it has one."
   (when-let* ((buffer (acpe--output-buffer conn))
               ((buffer-live-p buffer)))
     (with-current-buffer buffer
+      (when (and (acpe--title conn) (not header-line-format))
+        (header-line-indent-mode)
+        (setq header-line-format
+              '("" header-line-indent
+                (:eval (string-replace
+                        "%" "%%" (acpe--list-first-line
+                                  (and acpe--connection
+                                       (acpe--title acpe--connection))))))))
       (force-mode-line-update))))
 
 (defun acpe--build-prompt-content (text)
