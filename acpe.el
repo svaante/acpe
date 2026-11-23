@@ -1546,9 +1546,9 @@ of an entry is either a connection or a session store record."
   "Major mode listing acpe sessions.
 \\{acpe-list-mode-map}"
   (setq tabulated-list-format
-        [("Status"   6 t)
-         ("Updated" 15 acpe--list-updated-less-p)
-         ("Directory" 30 t)
+        [("Status"    6 t)
+         ("Updated"   15 acpe--list-updated-less-p)
+         ("Directory" 25 t)
          ("Title"     0 t)])
   (setq tabulated-list-entries #'acpe--list-entries)
   (setq tabulated-list-sort-key '("Updated"))
