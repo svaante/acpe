@@ -1500,9 +1500,7 @@ of an entry is either a connection or a session store record."
                  (file-name-nondirectory (directory-file-name dir))
                "")
              (acpe--list-first-line (or (acpe--title conn)
-                                        (acpe--last-prompt conn)))
-             (acpe--list-first-line (when (acpe--title conn)
-                                      (acpe--last-prompt conn))))))
+                                        (acpe--last-prompt conn))))))
     acpe--connections)
    (when acpe-list--show-inactive
      (cl-loop
@@ -1519,8 +1517,7 @@ of an entry is either a connection or a session store record."
                              (float-time (time-since (plist-get record :updatedAt))))
              (file-name-nondirectory
               (directory-file-name (plist-get record :workingDirectory)))
-             (acpe--list-first-line (or title prompt))
-             (acpe--list-first-line (when title prompt))))))))
+             (acpe--list-first-line (or title prompt))))))))
 
 (defun acpe--list-first-line (text)
   "Return the first non-empty line of TEXT, or the empty string."
@@ -1552,8 +1549,7 @@ of an entry is either a connection or a session store record."
         [("Status"   6 t)
          ("Updated" 15 acpe--list-updated-less-p)
          ("Directory" 30 t)
-         ("Title"    45 t)
-         ("Last Prompt" 0 t)])
+         ("Title"     0 t)])
   (setq tabulated-list-entries #'acpe--list-entries)
   (setq tabulated-list-sort-key '("Updated"))
   (setq-local quit-window-kill-buffer t)
