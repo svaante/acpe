@@ -1065,6 +1065,9 @@ acpe-lazy-insert text property spanning it is resolved at send time."
                  'font-lock-face 'link
                  'rear-nonsticky t)
                 " ")))
+    ;; Call directly, setting the variable `deactivate-mark' would
+    ;; deactivate the mark in the prompt buffer, not this one.
+    (deactivate-mark)
     (let ((buffer (acpe--output-buffer conn)))
       (unless (buffer-live-p buffer)
         (kill-new text)
