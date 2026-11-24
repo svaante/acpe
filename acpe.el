@@ -544,14 +544,17 @@ With FINAL, render all of it."
                          (acpe--markdown-block-end start acpe--output-end)))
                   (text (buffer-substring-no-properties start end))
                   ((not (string-blank-p text)))
+                  ;; Render before moving point: shr may restore the
+                  ;; window configuration, which resets point here.
+                  (rendered (propertize (concat (string-trim-right
+                                                 (acpe--render-markdown text))
+                                                (if final "\n" "\n\n"))
+                                        'acpe-message-chunk t))
                   (inhibit-read-only t))
         (save-excursion
           (goto-char start)
-          (insert (propertize (concat (string-trim-right
-                                       (acpe--render-markdown text))
-                                      (if final "\n" "\n\n"))
-                              'acpe-message-chunk t))
-          (delete-char (length text)))))))
+          (insert rendered)
+          (delete-region (point) (+ (point) (length text))))))))
 
 (defun acpe--flush-message-chunks (conn)
   "Flush and render pending message chunks for CONN."
@@ -627,10 +630,12 @@ If EXPANDED is non-nil details is hidden."
                     (data (append updates
                                   (get-text-property
                                    start 'acpe-tool-call-data))))
-          (let ((expanded (acpe--detail-expanded-p start end))
-                (inhibit-read-only t))
+          (let* ((expanded (acpe--detail-expanded-p start end))
+                 (rendered (acpe--render-tool-call-line data expanded))
+                 (inhibit-read-only t))
             (delete-region start end)
-            (insert (acpe--render-tool-call-line data expanded))))))))
+            (goto-char start)
+            (insert rendered)))))))
 
 (defun acpe--detail-expanded-p (start end)
   "Non-nil if acpe-detail is visible in START..END."
@@ -679,10 +684,11 @@ If EXPANDED is non-nil details is hidden."
                  (details (buffer-substring-no-properties
                            text-start acpe--output-end))
                  (expanded (acpe--detail-expanded-p start acpe--output-end))
+                 (rendered (acpe--render-thought-line details expanded))
                  (inhibit-read-only t))
-            (goto-char start)
             (delete-region start acpe--output-end)
-            (insert (acpe--render-thought-line details expanded))))))))
+            (goto-char start)
+            (insert rendered)))))))
 
 (defun acpe-toggle-detail-at-point ()
   "Toggle the detail block for the thought or tool call at point."
