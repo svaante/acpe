@@ -1052,6 +1052,23 @@ Return the new session buffer."
                    'font-lock-face 'warning))
       (current-buffer))))
 
+(defun acpe-rename (conn title)
+  "Set CONN's session title to TITLE."
+  (interactive
+   (let ((conn (if (derived-mode-p 'acpe-list-mode)
+                   (let ((id (tabulated-list-get-id)))
+                     (unless (cl-typep id 'acpe-connection)
+                       (user-error "No live session at point"))
+                     id)
+                 (acpe--live-connection))))
+     (list conn (read-string "Session title: " (acpe--title conn)))))
+  (when (string-empty-p title)
+    (user-error "Empty title"))
+  (setf (acpe--title conn) title)
+  (when (acpe--session-id conn)
+    (acpe--session-save conn))
+  (acpe--prompt-update-mode-line conn))
+
 ;;;###autoload
 (defun acpe-insert (conn)
   "Insert a buffer reference for the current buffer into prompt.
@@ -1329,6 +1346,7 @@ project, see `acpe-dirtrack'."
   "C-c C-k" #'acpe-cancel
   "C-c n"   #'acpe-restart
   "C-c f"   #'acpe-fork
+  "C-c r"   #'acpe-rename
   "C-c m"   #'acpe-mode-next
   "C-c M"   #'acpe-mode-previous)
 
@@ -1351,6 +1369,7 @@ project, see `acpe-dirtrack'."
   "C-c C-k"    #'acpe-cancel
   "C-c n"      #'acpe-restart
   "C-c f"      #'acpe-fork
+  "C-c r"      #'acpe-rename
   "TAB"        #'acpe-toggle-detail-at-point
   "C-c m"      #'acpe-mode-next
   "C-c M"      #'acpe-mode-previous)
@@ -1576,7 +1595,8 @@ of an entry is either a connection or a session store record."
   :parent tabulated-list-mode-map
   "RET"     #'acpe-list-visit-buffer
   "C-c C-c" #'acpe-list-accept
-  "C-c C-k" #'acpe-list-cancel)
+  "C-c C-k" #'acpe-list-cancel
+  "C-c r"   #'acpe-rename)
 
 (define-derived-mode acpe-list-mode tabulated-list-mode "Acpe Menu"
   "Major mode listing acpe sessions.
