@@ -91,15 +91,42 @@ ends in a slash."
   "Shell command to convert markdown to HTML.  Nil for raw text."
   :type '(choice string (const nil)))
 
-(defcustom acpe-finished-hook nil
+(defcustom acpe-finished-hook '(acpe-notify-finished)
   "Hook run after the agent completes its response.
 Called with the connection as argument."
   :type 'hook)
 
-(defcustom acpe-permission-hook nil
+(defcustom acpe-permission-hook '(acpe-notify-permission)
   "Hook run when the agent requests permission to perform action.
 Called with the connection as argument."
   :type 'hook)
+
+
+;;; Notifications
+
+(declare-function notifications-notify "notifications")
+
+(defun acpe--notify (conn body)
+  "Show desktop notification BODY for CONN.
+Do nothing if CONN's buffer is visible in a focused frame."
+  (unless (when-let* ((buffer (acpe--output-buffer conn))
+                      (window (get-buffer-window buffer 'visible)))
+            (frame-focus-state (window-frame window)))
+    (let ((title (format "acpe: %s" (or (acpe--title conn)
+                                        (acpe--agent-name conn)))))
+      (cond ((featurep 'dbusbind)
+             (require 'notifications)
+             (notifications-notify :title title :body body :app-name "Emacs"))
+            (t (message "%s: %s" title body))))))
+
+(defun acpe-notify-finished (conn)
+  "Notify that the agent on CONN finished.  For `acpe-finished-hook'."
+  (acpe--notify conn "Finished"))
+
+(defun acpe-notify-permission (conn)
+  "Notify that the agent on CONN needs permission.
+For `acpe-permission-hook'."
+  (acpe--notify conn "Permission requested"))
 
 
 ;;; Connection
