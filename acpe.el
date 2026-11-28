@@ -352,6 +352,9 @@ For `acpe-permission-hook'."
 
 ;;; Prompt vars
 
+(defconst acpe--input-prompt "> "
+  "Input prompt string for `acpe-prompt-mode'.")
+
 (defvar-local acpe--output-end nil
   "Marker before the input prompt; insertion-type t advances it past inserts.")
 
@@ -408,6 +411,26 @@ For `acpe-permission-hook'."
        (setf (acpe--config-options conn)
              (append (plist-get update :configOptions) nil))
        (acpe--prompt-update-mode-line conn))
+      ("current_mode_update"
+       (when-let* ((opt (cl-find "mode" (acpe--config-options conn)
+                                 :key (lambda (o) (plist-get o :id))
+                                 :test #'equal)))
+         (setf (plist-get opt :currentValue) (plist-get update :currentModeId))
+         (acpe--prompt-update-mode-line conn)))
+      ("user_message_chunk"
+       (acpe--flush-thought-chunks conn)
+       (acpe--flush-message-chunks conn)
+       (when-let* ((content (plist-get update :content))
+                   ((equal (plist-get content :type) "text"))
+                   (text (plist-get content :text)))
+         (unless (acpe--output-end-get conn 'acpe-user-message)
+           (acpe--prompt-insert
+            conn "\n" (propertize acpe--input-prompt
+                                  'font-lock-face 'comint-highlight-prompt)))
+         (acpe--prompt-insert
+          conn (propertize text
+                           'font-lock-face 'comint-highlight-input
+                           'acpe-user-message t))))
       ("agent_thought_chunk"
        (acpe--flush-message-chunks conn)
        (when-let* ((content (plist-get update :content))
@@ -432,8 +455,10 @@ For `acpe-permission-hook'."
                    ((equal (plist-get content :type) "text"))
                    (text (plist-get content :text)))
          (unless (acpe--output-end-get conn 'acpe-message-chunk)
-           ;; Separate message from preceding tool call with a blank line
-           (let ((sep (if (acpe--output-end-get conn 'acpe-tool-call-id)
+           ;; Separate message from preceding tool call or user
+           ;; message with a blank line
+           (let ((sep (if (or (acpe--output-end-get conn 'acpe-tool-call-id)
+                              (acpe--output-end-get conn 'acpe-user-message))
                           "\n\n"
                         "\n")))
              (acpe--prompt-insert conn (propertize sep 'acpe-message-chunk t))))
@@ -459,7 +484,14 @@ For `acpe-permission-hook'."
       ("tool_call_update"
        (acpe--dirtrack conn update)
        (when-let* ((id (plist-get update :toolCallId)))
-         (apply #'acpe--update-tool-call conn id update)))
+         (apply #'acpe--update-tool-call conn id
+                ;; Terminal output is a snapshot of the command output
+                (if-let* ((output (thread-first update
+                                                (plist-get :_meta)
+                                                (plist-get :terminal_output)
+                                                (plist-get :data))))
+                    (cl-list* :rawOutput output update)
+                  update))))
       ("usage_update"
        (when-let* ((used (plist-get update :used))
                    (size (plist-get update :size)))
@@ -469,6 +501,18 @@ For `acpe-permission-hook'."
        (when-let* ((title (plist-get update :title)))
          (setf (acpe--title conn) title)
          (acpe--prompt-update-mode-line conn)))
+      ("notice"
+       (acpe--flush-thought-chunks conn)
+       (acpe--flush-message-chunks conn)
+       (acpe--prompt-insert
+        conn "\n"
+        (propertize (concat (plist-get update :title)
+                            (when-let* ((description (plist-get update :description)))
+                              (concat ": " description)))
+                    'font-lock-face (pcase (plist-get update :severity)
+                                      ("error"   'error)
+                                      ("warning" 'warning)
+                                      (_         'shadow)))))
       ("plan"
        (acpe--flush-thought-chunks conn)
        (acpe--flush-message-chunks conn)
@@ -845,7 +889,11 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
                   `( :protocolVersion 1
                      :clientInfo ( :name "acpe"
                                    :title "Agent Client Protocol for Emacs"
-                                   :version "0.1.0"))))
+                                   :version "0.1.0")
+                     ;; Empty hash tables serialize as {}, nil as null
+                     :clientCapabilities
+                     ( :session (:notices ,(make-hash-table))
+                       :_meta (:terminal_output t)))))
          (agent-version (plist-get result :protocolVersion)))
     (unless (equal agent-version 1)
       (error "[acpe] Protocol version mismatch (client=%d agent=%d)"
@@ -908,21 +956,23 @@ If CALLBACK is given, call it with (result error).  Otherwise block."
   (acpe--prompt-update-mode-line conn))
 
 (defun acpe--session-load (conn session-id cwd)
-  "Load an existing SESSION-ID on CONN."
-  (let* ((result
-          (acpe--request conn 'session/load
-                         `( :sessionId ,session-id
-                            :cwd ,cwd
-                            :mcpServers [])))
-         (existing (cl-find session-id (acpe--session-store-read)
-                            :key (lambda (e) (plist-get e :sessionId))
-                            :test #'equal)))
+  "Load an existing SESSION-ID on CONN.
+The prompt buffer is created first, as the agent replays the session
+history into it before responding."
+  (let ((existing (cl-find session-id (acpe--session-store-read)
+                           :key (lambda (e) (plist-get e :sessionId))
+                           :test #'equal)))
     (setf (acpe--session-id conn) session-id
-          (acpe--config-options conn)
-          (or (append (plist-get result :configOptions) nil)
-              (plist-get existing :configOptions))
+          (acpe--config-options conn) (plist-get existing :configOptions)
           (acpe--title conn) (plist-get existing :firstPrompt)
-          (acpe--last-prompt conn) (plist-get existing :lastPrompt)))
+          (acpe--last-prompt conn) (plist-get existing :lastPrompt))
+    (acpe--make-prompt-buffer conn)
+    (when-let* ((result (acpe--request conn 'session/load
+                                       `( :sessionId ,session-id
+                                          :cwd ,cwd
+                                          :mcpServers [])))
+                (options (append (plist-get result :configOptions) nil)))
+      (setf (acpe--config-options conn) options)))
   (acpe--prompt-update-mode-line conn))
 
 (defun acpe--session-fork (conn source)
@@ -1256,9 +1306,6 @@ project, see `acpe-dirtrack'."
 
 
 ;;; Prompt
-
-(defconst acpe--input-prompt "> "
-  "Input prompt string for `acpe-prompt-mode'.")
 
 (defvar acpe--prompt-commands
   '(("/cancel" acpe-cancel    "Cancel the current turn")
@@ -1740,7 +1787,8 @@ for the current project."
                   ((cl-typep session 'acpe-connection)
                    (acpe--session-fork conn session))
                   (t (acpe--session-new conn)))
-            (acpe--make-prompt-buffer conn)
+            (unless (acpe--output-buffer conn)
+              (acpe--make-prompt-buffer conn))
             (message "[acpe] Connected to %s (session %s)"
                      name (acpe--session-id conn))
             (pop-to-buffer (acpe--output-buffer conn)
