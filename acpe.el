@@ -68,15 +68,13 @@ from the first `cd' in shell commands the agent runs, so commands like
 work, such as a worktree."
   :type 'boolean)
 
-(defcustom acpe-dirtrack-exclude
-  (list (rx bos (or "/tmp/" "/private/" "/var/folders/" "/dev/" "/proc/"))
-        (concat "\\`" (regexp-quote
-                       (file-name-as-directory
-                        (expand-file-name temporary-file-directory)))))
-  "List of regexps for directories `acpe-dirtrack' should not follow.
-Each regexp is matched against the absolute directory name, which
-ends in a slash."
-  :type '(repeat regexp))
+(defcustom acpe-dirtrack-functions
+  (list #'acpe--dirtrack-same-repository)
+  "Functions deciding whether `acpe-dirtrack' should follow a directory.
+Each function is called with the connection and the absolute directory
+name, which ends in a slash.  The directory is followed only if all
+functions return non-nil."
+  :type 'hook)
 
 (defcustom acpe-session-store-file
   (locate-user-emacs-file "acpe-sessions.eld")
@@ -516,10 +514,29 @@ tool call's command."
                      (acpe--dirtrack-command
                       (plist-get (plist-get update :rawInput) :command))))
                   (dir (file-name-as-directory (expand-file-name dir)))
+                  ((not (equal dir default-directory)))
                   ((file-directory-p dir))
-                  ((not (seq-some (lambda (re) (string-match-p re dir))
-                                  acpe-dirtrack-exclude))))
+                  ((run-hook-with-args-until-failure 'acpe-dirtrack-functions
+                                                     conn dir)))
         (setq default-directory dir)))))
+
+(defun acpe--dirtrack-same-repository (conn dir)
+  "Return non-nil if DIR is inside CONN's working directory or repository.
+DIR is in the repository if it shares its git common directory with
+the working directory, as worktrees of the same repository do."
+  (cl-labels ((common-dir (dir)
+                (let ((default-directory dir))
+                  (with-temp-buffer
+                    (when (eql (ignore-errors
+                                 (process-file "git" nil t nil
+                                               "rev-parse" "--git-common-dir"))
+                               0)
+                      (file-name-as-directory
+                       (expand-file-name (string-trim (buffer-string)) dir)))))))
+    (let ((working-dir (acpe--working-directory conn)))
+      (or (file-in-directory-p dir working-dir)
+          (when-let* ((common (common-dir working-dir)))
+            (equal common (common-dir dir)))))))
 
 ;;; Output rendering
 
