@@ -972,7 +972,14 @@ history into it before responding."
                                           :cwd ,cwd
                                           :mcpServers [])))
                 (options (append (plist-get result :configOptions) nil)))
-      (setf (acpe--config-options conn) options)))
+      (setf (acpe--config-options conn) options))
+    (acpe--flush-thought-chunks conn)
+    (acpe--flush-message-chunks conn)
+    ;; Replayed output does not end with a newline, live output ends
+    ;; before the newline following the input
+    (with-current-buffer (acpe--output-buffer conn)
+      (unless (eq (char-before acpe--output-end) ?\n)
+        (acpe--prompt-insert conn "\n"))))
   (acpe--prompt-update-mode-line conn))
 
 (defun acpe--session-fork (conn source)
